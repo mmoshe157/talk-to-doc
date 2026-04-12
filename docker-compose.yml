@@ -1,0 +1,26 @@
+version: "3.9"
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    ports:
+      - "3001:3001"
+    environment:
+      - GOOGLE_AI_API_KEY=${GOOGLE_AI_API_KEY}
+      - PORT=3001
+      - NODE_ENV=production
+      - CORS_ORIGINS=http://localhost:5173
+    restart: unless-stopped
+
+  web:
+    build:
+      context: apps/web
+      args:
+        - VITE_WS_URL=/ws/live
+    ports:
+      - "5173:80"
+    depends_on:
+      - api
+    restart: unless-stopped
