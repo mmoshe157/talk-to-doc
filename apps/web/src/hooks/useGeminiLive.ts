@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { LiveSessionStatus, TranscriptEntry } from "../types/index.js";
 
-const WS_URL = import.meta.env.VITE_WS_URL ?? "/ws/live";
+// If VITE_WS_URL is not set (same-origin deployment), derive from window.location
+const _RAW_WS = import.meta.env.VITE_WS_URL ?? "";
+const WS_URL = _RAW_WS || "/ws/live";
 const SAMPLE_RATE = 16000;          // mic capture rate
 const GEMINI_OUTPUT_RATE = 24000;   // Gemini Live output PCM rate
 const PCM_BUFFER_SIZE = 4096;
@@ -175,7 +177,11 @@ export function useGeminiLive(sessionId: string) {
     // Always read from ref — immune to stale closure and MouseEvent args
     const voice = currentVoiceRef.current;
     const url = `${WS_URL}?sessionId=${sessionId}&voice=${encodeURIComponent(voice)}`;
-    const ws = new WebSocket(url.startsWith("/") ? `ws://${location.host}${url}` : url);
+    // For relative paths, use wss:// on https pages (Cloud Run) or ws:// on http (local dev)
+    const wsUrl = url.startsWith("/")
+      ? `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}${url}`
+      : url;
+    const ws = new WebSocket(wsUrl);
     wsRef.current = ws;
 
     ws.onopen = () => {
