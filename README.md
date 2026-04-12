@@ -1,4 +1,4 @@
-# Talk to Doc
+# Talk to Every Doc
 
 > **Chat with your documents using voice or text — powered by Gemini Live AI.**
 
@@ -23,83 +23,109 @@ Upload PDFs, paste web URLs, connect Google Drive or Cloud Storage, then have a 
 
 ## High-Level Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  Browser                                                        │
-│  React SPA · Web Audio API · useGeminiLive hook                 │
-│  Mic (16 kHz PCM) ──────────────── Speaker (24 kHz PCM)        │
-└────────────────────┬──────────────────────┬─────────────────────┘
-                     │ HTTPS                │ WSS
-                     ▼                      ▼
-┌─────────────────────────────────────────────────────────────────┐
-│  Google Cloud Run  (talk-to-doc-api)                           │
-│                                                                 │
-│  ┌──────────────────────┐   ┌─────────────────────────────┐    │
-│  │  Express REST API    │   │  WebSocket Proxy /ws/live   │    │
-│  │  POST /api/docs/     │   │  Binary PCM ↔ JSON msgs     │    │
-│  │   upload             │   │  Auto voice switching       │    │
-│  │   import-url         │   │  Function call handler      │    │
-│  │   import-drive       │   └────────────┬────────────────┘    │
-│  │   import-gcs         │                │                     │
-│  │  GET  /api/docs/list │   ┌────────────▼────────────────┐    │
-│  │  DEL  /api/docs/:id  │   │  RAG Engine                 │    │
-│  │                      │   │  fanout generateContent()   │    │
-│  │  express.static      │   │  one call per file, parallel│    │
-│  │  (serves React SPA)  │   └─────────────────────────────┘    │
-│  └──────────────────────┘                                       │
-└────────────┬──────────────────────────────────┬────────────────┘
-             │                                  │
-             ▼                                  ▼
-┌────────────────────────┐      ┌───────────────────────────────┐
-│  Gemini Files API      │      │  Gemini Live API              │
-│  PDF + text/plain      │      │  gemini-3.1-flash-live-preview│
-│  48-hr TTL             │      │  Real-time audio stream       │
-│  sessionId::filename   │      │  inputAudioTranscription      │
-│  tag for filtering     │      │  outputAudioTranscription     │
-└────────────────────────┘      └───────────────────────────────┘
-             │
-             ▼
-┌────────────────────────┐
-│  Gemini Flash 2.0      │
-│  generateContent()     │
-│  RAG over full docs    │
-│  (no embeddings)       │
-└────────────────────────┘
-```
+```mermaid
+graph TD
+    subgraph Browser["🌐 Browser"]
+        UI["React SPA\n(Gemini-style UI)"]
+        Audio["Web Audio API\n16 kHz PCM mic\n24 kHz PCM speaker"]
+        History["Session History\nlocalStorage"]
+    end
 
-### Voice Conversation Flow
+    subgraph CloudRun["☁️ Google Cloud Run — talk-to-doc-api"]
+        Static["express.static\n(serves React SPA)"]
+        REST["Express REST API\nPOST /api/docs/upload\nPOST /api/docs/import-url\nPOST /api/docs/import-drive\nPOST /api/docs/import-gcs\nGET  /api/docs/list\nDEL  /api/docs/:id"]
+        WSProxy["WebSocket Proxy\n/ws/live\nBinary PCM ↔ JSON\nVoice switch handler"]
+        RAG["RAG Engine\nlistFiles(sessionId)\nfanout generateContent()\none call per file — parallel"]
+    end
 
-```
-1. User clicks "Start session"
-   └─► AudioContext created (user gesture = no autoplay block)
+    subgraph GeminiAPIs["🤖 Google AI APIs"]
+        GeminiLive["Gemini Live API\ngemini-3.1-flash-live-preview\nSTT + LLM + TTS\naudio transcription"]
+        GeminiFlash["Gemini Flash 2.0\ngenerateContent(fileData)\nRAG over full documents"]
+        GeminiFiles["Gemini Files API\nPDF + text/plain\n48-hour TTL\nsessionId::filename tags"]
+    end
 
-2. WebSocket opens  wss://.../ws/live?sessionId=&voice=Charon
-   └─► Server connects to Gemini Live API
+    subgraph Sources["📥 Document Sources"]
+        PDFUpload["PDF Upload\n(multer)"]
+        URLImport["URL Import\n(fetch + cheerio)"]
+        DriveImport["Google Drive\n(googleapis + ADC)"]
+        GCSImport["Google Cloud Storage\n(ADC)"]
+    end
 
-3. session_ready → mic auto-activates (getUserMedia 16 kHz)
-   └─► ScriptProcessorNode → binary PCM frames → WebSocket
+    UI -->|HTTPS| REST
+    UI -->|HTTPS| Static
+    Audio -->|WSS binary PCM| WSProxy
+    WSProxy -->|audio stream| GeminiLive
+    GeminiLive -->|tool call: search_documents| RAG
+    RAG -->|fileData + query| GeminiFlash
+    GeminiFlash -->|passages| RAG
+    RAG -->|tool response| GeminiLive
+    GeminiLive -->|audio + transcript| WSProxy
+    WSProxy -->|WSS PCM + JSON| Audio
 
-4. Server: binary frame → sendRealtimeInput({ audio: base64 })
-   └─► Gemini transcribes speech, reasons, may call search_documents()
+    PDFUpload --> REST
+    URLImport --> REST
+    DriveImport --> REST
+    GCSImport --> REST
+    REST -->|upload buffer| GeminiFiles
+    RAG -->|list files| GeminiFiles
 
-5. search_documents() tool call:
-   └─► listFiles(sessionId) → parallel generateContent(fileData, query)
-   └─► relevant passages returned as tool response to Gemini
-
-6. Gemini streams audio reply + transcript back
-   └─► Browser schedules PCM via AudioContext (50 ms lookahead)
+    UI -->|save/load| History
 ```
 
-### Document Import Flow
+---
 
+## Voice Conversation Flow
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant Browser
+    participant CloudRun as Cloud Run (API)
+    participant GeminiLive as Gemini Live API
+    participant GeminiFiles as Gemini Files API
+    participant GeminiFlash as Gemini Flash 2.0
+
+    User->>Browser: Click "Start Session"
+    Note over Browser: AudioContext created\n(user gesture unlocks autoplay)
+    Browser->>CloudRun: WSS /ws/live?sessionId=&voice=Charon
+    CloudRun->>GeminiLive: Open bidirectional stream
+    GeminiLive-->>CloudRun: session_ready
+    CloudRun-->>Browser: {type:"session_ready"}
+    Note over Browser: Mic auto-activates\ngetUserMedia(16 kHz)
+
+    loop Voice Turn
+        Browser->>CloudRun: Binary PCM frames (16 kHz)
+        CloudRun->>GeminiLive: sendRealtimeInput({audio})
+        GeminiLive->>GeminiLive: STT → reasoning
+        GeminiLive-->>CloudRun: tool_call: search_documents(query)
+        CloudRun->>GeminiFiles: listFiles(sessionId)
+        GeminiFiles-->>CloudRun: file URIs
+        par For each file
+            CloudRun->>GeminiFlash: generateContent(fileData, query)
+            GeminiFlash-->>CloudRun: relevant passages
+        end
+        CloudRun->>GeminiLive: tool_response(passages)
+        GeminiLive-->>CloudRun: audio reply + transcript stream
+        CloudRun-->>Browser: PCM chunks + transcript JSON
+        Browser->>User: Plays audio, shows transcript
+    end
 ```
-PDF upload   → multer buffer → Gemini Files API (application/pdf)
-URL import   → fetch + cheerio HTML parse → text/plain upload
-Drive import → googleapis + ADC → download → Gemini Files API
-GCS import   → @google-cloud/storage + ADC → download → Gemini Files API
 
-All files tagged: sessionId::filename (displayName)
-Expire automatically after 48 hours
+---
+
+## Document Import Flow
+
+```mermaid
+flowchart LR
+    A1["📄 PDF Upload\ndrag-and-drop"] -->|multer buffer| Store
+    A2["🔗 URL Import\npaste link"] -->|fetch + cheerio\nHTML → text/plain| Store
+    A3["📂 Google Drive\npaste share URL"] -->|googleapis + ADC\ndownload bytes| Store
+    A4["🪣 GCS Import\ngs://bucket/path"] -->|@google-cloud/storage\n+ ADC| Store
+
+    Store["Gemini Files API\n📁 sessionId::filename\n⏱ 48-hr auto-expire"]
+
+    Store -->|fileData URI| RAG["RAG Engine\ngenerateContent()\nper file in parallel"]
+    RAG -->|ranked passages| Answer["💬 Gemini Live\nAnswer to user"]
 ```
 
 ---
@@ -107,7 +133,7 @@ Expire automatically after 48 hours
 ## Project Structure
 
 ```
-talk-to-doc/
+talk-to-every-doc/
 ├── apps/
 │   ├── api/                    # Node.js 20 + TypeScript + Express
 │   │   └── src/
@@ -162,10 +188,10 @@ PORT=3001
 
 ```bash
 # Terminal 1 — API
-cd apps/api && pnpm dev
+cd apps/api; pnpm dev
 
 # Terminal 2 — Web
-cd apps/web && pnpm dev
+cd apps/web; pnpm dev
 ```
 
 - API: http://localhost:3001
