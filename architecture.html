@@ -1,0 +1,536 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Talk to Doc — System Architecture</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0e1a;
+    --surface: #111827;
+    --surface2: #1a2235;
+    --border: #1e2d42;
+    --text: #e2e8f0;
+    --muted: #64748b;
+    --blue: #3b82f6;
+    --blue-bright: #60a5fa;
+    --purple: #a78bfa;
+    --green: #34d399;
+    --orange: #fb923c;
+    --yellow: #fbbf24;
+    --pink: #f472b6;
+    --cyan: #22d3ee;
+    --red: #f87171;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Inter', sans-serif;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* ── Header ──────────────────────────────────────────────────── */
+  .header {
+    padding: 28px 40px 20px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+  .logo {
+    width: 40px; height: 40px; border-radius: 50%;
+    background: linear-gradient(135deg, #3b82f6, #a855f7, #ec4899);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px;
+  }
+  .header-title { font-size: 22px; font-weight: 700; }
+  .header-sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .badge {
+    margin-left: auto;
+    background: #1a2a1a;
+    border: 1px solid #2d4a2d;
+    color: var(--green);
+    font-size: 11px; font-weight: 600;
+    padding: 4px 10px; border-radius: 20px;
+  }
+
+  /* ── Main layout ─────────────────────────────────────────────── */
+  .page { padding: 32px 40px; display: flex; flex-direction: column; gap: 32px; }
+
+  /* ── Row of layers ───────────────────────────────────────────── */
+  .arch {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 0;
+    position: relative;
+  }
+
+  .layer {
+    display: grid;
+    gap: 16px;
+    padding: 24px 20px;
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    background: var(--surface);
+    position: relative;
+    transition: border-color .2s;
+  }
+  .layer:hover { border-color: #2a3a54; }
+
+  .layer-label {
+    position: absolute;
+    top: -11px; left: 20px;
+    background: var(--bg);
+    padding: 0 8px;
+    font-size: 10px; font-weight: 700; letter-spacing: 1px;
+    text-transform: uppercase;
+  }
+
+  .layer-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+
+  /* ── Cards ───────────────────────────────────────────────────── */
+  .card {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px;
+    transition: transform .15s, border-color .15s, box-shadow .15s;
+    cursor: default;
+  }
+  .card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 24px rgba(0,0,0,.4);
+  }
+  .card-icon { font-size: 20px; margin-bottom: 8px; }
+  .card-name { font-size: 13px; font-weight: 600; margin-bottom: 4px; }
+  .card-tech { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--muted); margin-bottom: 8px; }
+  .card-desc { font-size: 11px; color: #94a3b8; line-height: 1.5; }
+
+  .tag {
+    display: inline-block;
+    padding: 1px 7px;
+    border-radius: 9px;
+    font-size: 10px;
+    font-weight: 600;
+    margin: 3px 2px 0;
+  }
+
+  /* ── Arrows between layers ───────────────────────────────────── */
+  .connector {
+    display: flex; align-items: center; justify-content: center;
+    gap: 24px;
+    padding: 10px 0;
+    color: var(--muted);
+    font-size: 11px;
+  }
+  .arrow-down {
+    display: flex; flex-direction: column; align-items: center; gap: 2px;
+    color: var(--blue);
+  }
+  .arrow-line {
+    width: 2px; height: 18px;
+    background: linear-gradient(to bottom, var(--blue), transparent);
+  }
+  .arrow-head { font-size: 10px; }
+  .flow-label { font-size: 10px; color: var(--muted); font-family: 'JetBrains Mono', monospace; }
+
+  /* ── Data flow ───────────────────────────────────────────────── */
+  .flows {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 16px;
+  }
+  .flow-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px;
+  }
+  .flow-title {
+    font-size: 12px; font-weight: 700; margin-bottom: 12px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .flow-step {
+    display: flex; align-items: flex-start; gap: 10px;
+    margin-bottom: 8px; font-size: 11px; color: #94a3b8; line-height: 1.5;
+  }
+  .step-num {
+    width: 18px; height: 18px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 9px; font-weight: 700;
+    flex-shrink: 0; margin-top: 1px;
+  }
+
+  /* ── Tech stack ──────────────────────────────────────────────── */
+  .stack-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 12px;
+  }
+  .stack-item {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px 14px;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .stack-icon { font-size: 18px; flex-shrink: 0; }
+  .stack-name { font-size: 12px; font-weight: 600; }
+  .stack-role { font-size: 10px; color: var(--muted); }
+
+  /* ── Color accents per layer ─────────────────────────────────── */
+  .l-user  .layer-label { color: var(--yellow); }
+  .l-user  .card:hover  { border-color: #4a3800; }
+
+  .l-frontend  .layer-label { color: var(--blue-bright); }
+  .l-frontend  .card:hover  { border-color: #1e3a5f; }
+
+  .l-backend   .layer-label { color: var(--green); }
+  .l-backend   .card:hover  { border-color: #1a3a2a; }
+
+  .l-ai        .layer-label { color: var(--purple); }
+  .l-ai        .card:hover  { border-color: #2e1a4a; }
+
+  .l-ext       .layer-label { color: var(--orange); }
+  .l-ext       .card:hover  { border-color: #3a2010; }
+
+  section-title {
+    display: block; font-size: 11px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 1px; color: var(--muted);
+    margin-bottom: 12px;
+  }
+
+  hr.sep { border: none; border-top: 1px solid var(--border); margin: 4px 0; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="logo">🗣</div>
+  <div>
+    <div class="header-title">Talk to Doc</div>
+    <div class="header-sub">System Architecture · April 2026</div>
+  </div>
+  <div class="badge">● Live on Cloud Run</div>
+</div>
+
+<div class="page">
+
+  <!-- ══════════════════════════════════════════════════
+       ARCHITECTURE LAYERS
+  ══════════════════════════════════════════════════ -->
+
+  <div class="arch">
+
+    <!-- USER -->
+    <div class="layer l-user">
+      <div class="layer-label" style="color:var(--yellow)">👤 USER</div>
+      <div class="layer-grid">
+        <div class="card" style="border-color:#3a2c00">
+          <div class="card-icon">🌐</div>
+          <div class="card-name">Web Browser</div>
+          <div class="card-tech">Chrome / Safari / Firefox</div>
+          <div class="card-desc">User accesses the app via HTTPS. Microphone captured via Web Audio API. Speaker output rendered client-side.</div>
+          <div>
+            <span class="tag" style="background:#2a1f00;color:var(--yellow)">HTTPS</span>
+            <span class="tag" style="background:#2a1f00;color:var(--yellow)">WSS</span>
+            <span class="tag" style="background:#2a1f00;color:var(--yellow)">Web Audio API</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Connector -->
+    <div class="connector">
+      <div class="arrow-down"><div class="arrow-line"></div><div class="arrow-head">▼</div></div>
+      <span class="flow-label">HTTPS requests · WSS audio stream · PCM binary frames</span>
+      <div class="arrow-down"><div class="arrow-line"></div><div class="arrow-head">▼</div></div>
+    </div>
+
+    <!-- FRONTEND -->
+    <div class="layer l-frontend">
+      <div class="layer-label">⚛️ FRONTEND — React 18 + Vite + TailwindCSS</div>
+      <div class="layer-grid">
+        <div class="card">
+          <div class="card-icon">💬</div>
+          <div class="card-name">ChatArea</div>
+          <div class="card-tech">ChatArea.tsx</div>
+          <div class="card-desc">Gemini-style chat UI. Displays live transcripts as messages arrive from Gemini's audio transcription. Thinking indicator, welcome screen, text input fallback.</div>
+        </div>
+        <div class="card">
+          <div class="card-icon">📁</div>
+          <div class="card-name">DocumentSidebar</div>
+          <div class="card-tech">DocumentSidebar.tsx</div>
+          <div class="card-desc">Two tabs: Documents (upload / import) and History (past sessions). Drag-and-drop PDF, URL scraping, Google Drive link, GCS path.</div>
+        </div>
+        <div class="card">
+          <div class="card-icon">🎙</div>
+          <div class="card-name">useGeminiLive Hook</div>
+          <div class="card-tech">hooks/useGeminiLive.ts</div>
+          <div class="card-desc">Manages WebSocket lifecycle. Captures mic via ScriptProcessorNode at 16 kHz. Plays Gemini audio at 24 kHz via AudioContext with lookahead buffering. Auto-starts mic on session_ready.</div>
+        </div>
+        <div class="card">
+          <div class="card-icon">🕓</div>
+          <div class="card-name">useSessionHistory Hook</div>
+          <div class="card-tech">hooks/useSessionHistory.ts</div>
+          <div class="card-desc">Persists up to 50 sessions in localStorage. Auto-saves transcript on disconnect. Supports restore and delete.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Connector -->
+    <div class="connector">
+      <div class="arrow-down"><div class="arrow-line"></div><div class="arrow-head">▼</div></div>
+      <span class="flow-label">REST /api/docs/* · WebSocket /ws/live · Static assets</span>
+      <div class="arrow-down"><div class="arrow-line"></div><div class="arrow-head">▼</div></div>
+    </div>
+
+    <!-- BACKEND -->
+    <div class="layer l-backend">
+      <div class="layer-label">⚙️ BACKEND — Node.js 20 + TypeScript + Express — Google Cloud Run</div>
+      <div class="layer-grid">
+        <div class="card">
+          <div class="card-icon">🖥</div>
+          <div class="card-name">Express Server</div>
+          <div class="card-tech">src/index.ts · PORT 8080</div>
+          <div class="card-desc">Serves both the React SPA (express.static) and API routes. WebSocket upgrade handler for /ws/live. Global JSON error handlers (404 + 500).</div>
+          <div>
+            <span class="tag" style="background:#0a2a15;color:var(--green)">Single Container</span>
+            <span class="tag" style="background:#0a2a15;color:var(--green)">Same Origin</span>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-icon">📡</div>
+          <div class="card-name">Live Session Handler</div>
+          <div class="card-tech">live/session.ts</div>
+          <div class="card-desc">Proxies browser WebSocket ↔ Gemini Live API. Handles binary PCM audio frames vs JSON control messages. Voice switching via function calling + session restart.</div>
+          <div>
+            <span class="tag" style="background:#0a2a15;color:var(--green)">Function Calling</span>
+            <span class="tag" style="background:#0a2a15;color:var(--green)">Voice Switching</span>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-icon">📄</div>
+          <div class="card-name">Docs Router</div>
+          <div class="card-tech">routes/docs.ts</div>
+          <div class="card-desc">
+            <strong style="color:#e2e8f0">POST /upload</strong> — multer PDF upload<br>
+            <strong style="color:#e2e8f0">POST /import-url</strong> — scrape via cheerio<br>
+            <strong style="color:#e2e8f0">POST /import-drive</strong> — Drive API + ADC<br>
+            <strong style="color:#e2e8f0">POST /import-gcs</strong> — GCS bucket download<br>
+            <strong style="color:#e2e8f0">GET /list · DELETE /:id</strong>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-icon">🔍</div>
+          <div class="card-name">RAG Retrieval</div>
+          <div class="card-tech">rag/retrieval.ts + rag/file-store.ts</div>
+          <div class="card-desc">For each Gemini Live tool call (search_documents), fans out to all active files in parallel. Uses generateContent with fileData to extract relevant passages. No vector DB needed.</div>
+          <div>
+            <span class="tag" style="background:#0a2a15;color:var(--green)">No Embeddings</span>
+            <span class="tag" style="background:#0a2a15;color:var(--green)">Parallel Search</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Connector -->
+    <div class="connector">
+      <div class="arrow-down"><div class="arrow-line"></div><div class="arrow-head">▼</div></div>
+      <span class="flow-label">@google/genai SDK · googleapis · @google-cloud/storage</span>
+      <div class="arrow-down"><div class="arrow-line"></div><div class="arrow-head">▼</div></div>
+    </div>
+
+    <!-- AI LAYER -->
+    <div class="layer l-ai">
+      <div class="layer-label">🤖 GOOGLE AI — Gemini APIs</div>
+      <div class="layer-grid">
+        <div class="card" style="border-color:#2e1a4a">
+          <div class="card-icon">🗣</div>
+          <div class="card-name">Gemini Live API</div>
+          <div class="card-tech">gemini-3.1-flash-live-preview</div>
+          <div class="card-desc">Bidirectional audio stream. Handles STT → LLM → TTS in a single pipeline. Provides inputAudioTranscription + outputAudioTranscription. Supports function calling mid-conversation.</div>
+          <div>
+            <span class="tag" style="background:#1e0a3a;color:var(--purple)">24 kHz PCM</span>
+            <span class="tag" style="background:#1e0a3a;color:var(--purple)">Real-time</span>
+            <span class="tag" style="background:#1e0a3a;color:var(--purple)">8 Voices</span>
+          </div>
+        </div>
+        <div class="card" style="border-color:#2e1a4a">
+          <div class="card-icon">📦</div>
+          <div class="card-name">Gemini Files API</div>
+          <div class="card-tech">genai.files.upload / list / delete</div>
+          <div class="card-desc">Temporary cloud storage for documents (48-hr lifetime). Supports PDF and text/plain. Each file tagged with sessionId::filename in displayName for per-session filtering.</div>
+          <div>
+            <span class="tag" style="background:#1e0a3a;color:var(--purple)">48-hr TTL</span>
+            <span class="tag" style="background:#1e0a3a;color:var(--purple)">PDF + TXT</span>
+          </div>
+        </div>
+        <div class="card" style="border-color:#2e1a4a">
+          <div class="card-icon">🧠</div>
+          <div class="card-name">Gemini Flash (RAG)</div>
+          <div class="card-tech">gemini-2.0-flash · generateContent</div>
+          <div class="card-desc">Used for document search. Receives the full document as fileData and extracts verbatim relevant passages for the user's query. Runs in parallel across all uploaded files.</div>
+          <div>
+            <span class="tag" style="background:#1e0a3a;color:var(--purple)">Document QA</span>
+            <span class="tag" style="background:#1e0a3a;color:var(--purple)">1M ctx window</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Connector -->
+    <div class="connector">
+      <div class="arrow-down"><div class="arrow-line"></div><div class="arrow-head">▼</div></div>
+      <span class="flow-label">OAuth ADC · googleapis · @google-cloud/storage · HTTP fetch + cheerio</span>
+      <div class="arrow-down"><div class="arrow-line"></div><div class="arrow-head">▼</div></div>
+    </div>
+
+    <!-- EXTERNAL -->
+    <div class="layer l-ext">
+      <div class="layer-label">🌍 EXTERNAL DATA SOURCES</div>
+      <div class="layer-grid">
+        <div class="card" style="border-color:#3a1a00">
+          <div class="card-icon">📂</div>
+          <div class="card-name">PDF Upload</div>
+          <div class="card-tech">multer · drag-and-drop</div>
+          <div class="card-desc">Direct file upload from the user's device. Max 100 MB. Processed immediately and stored in Gemini Files API.</div>
+        </div>
+        <div class="card" style="border-color:#3a1a00">
+          <div class="card-icon">🔗</div>
+          <div class="card-name">Web URL Import</div>
+          <div class="card-tech">node fetch + cheerio</div>
+          <div class="card-desc">Fetches any public web page. Removes nav/footer/scripts. Extracts readable text from article/main/body. Stores as text/plain (up to 500 KB).</div>
+        </div>
+        <div class="card" style="border-color:#3a1a00">
+          <div class="card-icon"></div>
+          <div class="card-name">Google Drive</div>
+          <div class="card-tech">googleapis · Application Default Credentials</div>
+          <div class="card-desc">User shares a file with the Cloud Run service account. Backend downloads via Drive API using ADC. File ID extracted from shareable link URL.</div>
+        </div>
+        <div class="card" style="border-color:#3a1a00">
+          <div class="card-icon">🪣</div>
+          <div class="card-name">Google Cloud Storage</div>
+          <div class="card-tech">@google-cloud/storage · ADC</div>
+          <div class="card-desc">User provides gs://bucket/path. Cloud Run service account reads the object using ADC. Downloaded and uploaded to Gemini Files API.</div>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /arch -->
+
+  <!-- ══════════════════════════════════════════════════
+       DATA FLOWS
+  ══════════════════════════════════════════════════ -->
+
+  <div style="margin-top:8px">
+    <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin-bottom:14px">Key Data Flows</div>
+    <div class="flows">
+
+      <div class="flow-card">
+        <div class="flow-title" style="color:var(--purple)">
+          <span style="font-size:16px">🗣</span> Voice Conversation
+        </div>
+        <div class="flow-step"><div class="step-num" style="background:#1e0a3a;color:var(--purple)">1</div><span>User clicks Start session — mic auto-activates, AudioContext created during gesture</span></div>
+        <div class="flow-step"><div class="step-num" style="background:#1e0a3a;color:var(--purple)">2</div><span>Browser captures mic at 16 kHz PCM, sends binary WebSocket frames to Cloud Run</span></div>
+        <div class="flow-step"><div class="step-num" style="background:#1e0a3a;color:var(--purple)">3</div><span>Node.js proxies audio → Gemini Live via <code style="color:var(--purple)">sendRealtimeInput()</code></span></div>
+        <div class="flow-step"><div class="step-num" style="background:#1e0a3a;color:var(--purple)">4</div><span>Gemini streams back audio + transcript chunks. Server relays as JSON messages</span></div>
+        <div class="flow-step"><div class="step-num" style="background:#1e0a3a;color:var(--purple)">5</div><span>Browser plays 24 kHz PCM via AudioContext with 50 ms lookahead buffer</span></div>
+      </div>
+
+      <div class="flow-card">
+        <div class="flow-title" style="color:var(--green)">
+          <span style="font-size:16px">🔍</span> Document RAG Search
+        </div>
+        <div class="flow-step"><div class="step-num" style="background:#0a2a15;color:var(--green)">1</div><span>User asks a question about their documents (voice or text)</span></div>
+        <div class="flow-step"><div class="step-num" style="background:#0a2a15;color:var(--green)">2</div><span>Gemini Live decides to call <code style="color:var(--green)">search_documents</code> function with a query</span></div>
+        <div class="flow-step"><div class="step-num" style="background:#0a2a15;color:var(--green)">3</div><span>Node.js fetches all active files for this session from Gemini Files API</span></div>
+        <div class="flow-step"><div class="step-num" style="background:#0a2a15;color:var(--green)">4</div><span>Fans out parallel <code style="color:var(--green)">generateContent</code> calls — one per file with fileData</span></div>
+        <div class="flow-step"><div class="step-num" style="background:#0a2a15;color:var(--green)">5</div><span>Relevant passages returned to Gemini Live as tool response → spoken to user</span></div>
+      </div>
+
+      <div class="flow-card">
+        <div class="flow-title" style="color:var(--orange)">
+          <span style="font-size:16px">📄</span> Document Import
+        </div>
+        <div class="flow-step"><div class="step-num" style="background:#2a1000;color:var(--orange)">1</div><span>User drops PDF / pastes URL / Drive link / GCS path</span></div>
+        <div class="flow-step"><div class="step-num" style="background:#2a1000;color:var(--orange)">2</div><span>For URL: fetch → cheerio HTML parse → extract text; For Drive/GCS: download via ADC</span></div>
+        <div class="flow-step"><div class="step-num" style="background:#2a1000;color:var(--orange)">3</div><span>Buffer uploaded to Gemini Files API with <code style="color:var(--orange)">sessionId::filename</code> displayName</span></div>
+        <div class="flow-step"><div class="step-num" style="background:#2a1000;color:var(--orange)">4</div><span>File transitions to ACTIVE state (usually instant). Returns fileUri for RAG</span></div>
+        <div class="flow-step"><div class="step-num" style="background:#2a1000;color:var(--orange)">5</div><span>File listed in sidebar. Automatically expires after 48 hours</span></div>
+      </div>
+
+      <div class="flow-card">
+        <div class="flow-title" style="color:var(--cyan)">
+          <span style="font-size:16px">🕓</span> Session History
+        </div>
+        <div class="flow-step"><div class="step-num" style="background:#0a2228;color:var(--cyan)">1</div><span>Every message is stored in React state as <code style="color:var(--cyan)">TranscriptEntry[]</code></span></div>
+        <div class="flow-step"><div class="step-num" style="background:#0a2228;color:var(--cyan)">2</div><span>On disconnect, transcript auto-saved to localStorage with generated title</span></div>
+        <div class="flow-step"><div class="step-num" style="background:#0a2228;color:var(--cyan)">3</div><span>History tab lists up to 50 sessions sorted newest-first</span></div>
+        <div class="flow-step"><div class="step-num" style="background:#0a2228;color:var(--cyan)">4</div><span>Click any session to restore read-only transcript view in chat area</span></div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════
+       TECH STACK
+  ══════════════════════════════════════════════════ -->
+  <div>
+    <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin-bottom:14px">Technology Stack</div>
+    <div class="stack-grid">
+      <div class="stack-item"><div class="stack-icon">⚛️</div><div><div class="stack-name">React 18 + Vite</div><div class="stack-role">Frontend framework + bundler</div></div></div>
+      <div class="stack-item"><div class="stack-icon">🎨</div><div><div class="stack-name">TailwindCSS 3</div><div class="stack-role">Google/Gemini design system</div></div></div>
+      <div class="stack-item"><div class="stack-icon">🟢</div><div><div class="stack-name">Node.js 20 + TypeScript</div><div class="stack-role">Backend runtime</div></div></div>
+      <div class="stack-item"><div class="stack-icon">🚂</div><div><div class="stack-name">Express 4</div><div class="stack-role">HTTP + static file server</div></div></div>
+      <div class="stack-item"><div class="stack-icon">🔌</div><div><div class="stack-name">ws (WebSocket)</div><div class="stack-role">Bidirectional audio bridge</div></div></div>
+      <div class="stack-item"><div class="stack-icon">🤖</div><div><div class="stack-name">@google/genai SDK</div><div class="stack-role">Gemini Live + Files + Flash</div></div></div>
+      <div class="stack-item"><div class="stack-icon">☁️</div><div><div class="stack-name">Google Cloud Run</div><div class="stack-role">Containerized deployment (0→5 instances)</div></div></div>
+      <div class="stack-item"><div class="stack-icon">🐳</div><div><div class="stack-name">Docker multi-stage</div><div class="stack-role">Builder + runner, ~200 MB image</div></div></div>
+      <div class="stack-item"><div class="stack-icon">📦</div><div><div class="stack-name">pnpm workspaces</div><div class="stack-role">Monorepo package manager</div></div></div>
+      <div class="stack-item"><div class="stack-icon">🌿</div><div><div class="stack-name">cheerio</div><div class="stack-role">Server-side HTML parsing for URL import</div></div></div>
+      <div class="stack-item"><div class="stack-icon">📁</div><div><div class="stack-name">googleapis + @gc/storage</div><div class="stack-role">Drive & GCS ADC integration</div></div></div>
+      <div class="stack-item"><div class="stack-icon">💾</div><div><div class="stack-name">localStorage</div><div class="stack-role">Client-side session history (50 sessions)</div></div></div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════
+       DEPLOYMENT
+  ══════════════════════════════════════════════════ -->
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px">
+    <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin-bottom:14px">Deployment</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px;font-size:12px;color:#94a3b8;line-height:1.8">
+      <div>
+        <div style="color:var(--green);font-weight:600;margin-bottom:6px">🌐 Live URL</div>
+        <code style="color:var(--blue-bright);font-family:'JetBrains Mono',monospace;font-size:11px">https://talk-to-doc-api-1085727639300<br>.us-central1.run.app</code>
+        <div style="margin-top:6px">Single Cloud Run service serving both API and SPA from one container. Zero cold-start overhead on active sessions.</div>
+      </div>
+      <div>
+        <div style="color:var(--orange);font-weight:600;margin-bottom:6px">🏗 Build Pipeline</div>
+        Cloud Build → Artifact Registry → Cloud Run<br>
+        Docker multi-stage: builds React SPA + TypeScript API, copies web/dist into the runner image for Express static serving.
+      </div>
+      <div>
+        <div style="color:var(--purple);font-weight:600;margin-bottom:6px">🔑 Service Account</div>
+        Cloud Run SA has Drive API + GCS read access via Application Default Credentials. No OAuth client needed for server-side imports.
+      </div>
+      <div>
+        <div style="color:var(--cyan);font-weight:600;margin-bottom:6px">📊 Scaling</div>
+        Min 0 / Max 5 instances · 512 MB RAM · 1 vCPU per instance.<br>
+        WebSocket sessions are stateful — each revision handles concurrent connections independently.
+      </div>
+    </div>
+  </div>
+
+  <div style="text-align:center;color:var(--muted);font-size:11px;padding-bottom:20px">
+    talk-to-doc · github.com/mmoshe157/talk-to-doc · Built with Gemini Live API + Google Cloud Run
+  </div>
+
+</div>
+</body>
+</html>
