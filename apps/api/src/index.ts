@@ -1,6 +1,6 @@
 import "dotenv/config";
 import http from "http";
-import express from "express";
+import express, { type Request, type Response, type NextFunction } from "express";
 import cors from "cors";
 import { WebSocketServer } from "ws";
 import { healthRouter } from "./routes/health.js";
@@ -25,6 +25,19 @@ app.get("/api/voices", (_req, res) => {
   res.json(
     Object.entries(VOICES).map(([name, gender]) => ({ name, gender }))
   );
+});
+
+// ── Global error handlers (always return JSON, never HTML) ───────────────────
+// 404 — route not found
+app.use((_req: Request, res: Response) => {
+  res.status(404).json({ error: `Route not found: ${_req.method} ${_req.path}` });
+});
+
+// 500 — unhandled errors
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
+  console.error("Unhandled error:", err);
+  res.status(500).json({ error: err.message ?? "Internal server error" });
 });
 
 const server = http.createServer(app);

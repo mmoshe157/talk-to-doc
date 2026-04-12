@@ -91,7 +91,17 @@ function DocumentsTab({ sessionId }: { sessionId: string }) {
       form.append("file", file);
       form.append("sessionId", sessionId);
       const res = await fetch(`${API}/api/docs/upload`, { method: "POST", body: form });
-      if (!res.ok) throw new Error(((await res.json()) as { error?: string }).error ?? "Upload failed");
+      if (!res.ok) {
+        let msg = `Upload failed (${res.status})`;
+        try {
+          const ct = res.headers.get("content-type") ?? "";
+          if (ct.includes("application/json")) {
+            const d = (await res.json()) as { error?: string };
+            msg = d.error ?? msg;
+          }
+        } catch { /* use default msg */ }
+        throw new Error(msg);
+      }
       await loadDocs();
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Upload failed");
@@ -120,7 +130,23 @@ function DocumentsTab({ sessionId }: { sessionId: string }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ url: importValue.trim(), sessionId }),
       });
-      if (!res.ok) throw new Error(((await res.json()) as { error?: string }).error ?? "Import failed");
+      if (!res.ok) {
+        // Safely try to parse JSON; fall back gracefully if server returned HTML
+        let msg = `Request failed (${res.status})`;
+        try {
+          const ct = res.headers.get("content-type") ?? "";
+          if (ct.includes("application/json")) {
+            const d = (await res.json()) as { error?: string };
+            msg = d.error ?? msg;
+          } else {
+            const text = await res.text();
+            // Grab first meaningful line if it's not raw HTML
+            const firstLine = text.split("\n").find((l) => l.trim() && !l.includes("<"));
+            if (firstLine) msg = firstLine.trim();
+          }
+        } catch { /* use default msg */ }
+        throw new Error(msg);
+      }
       setImportValue("");
       setImportMode(null);
       await loadDocs();

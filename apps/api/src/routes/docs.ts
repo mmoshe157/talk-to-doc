@@ -73,34 +73,49 @@ docsRouter.delete("/:fileId", async (req, res) => {
 
 /** Import a web page by URL — scrapes the text content and stores it as plain text. */
 docsRouter.post("/import-url", async (req, res) => {
-  const { url, sessionId = "default" } = req.body as { url: string; sessionId?: string };
-
-  if (!url) {
-    res.status(400).json({ error: "url is required" });
-    return;
-  }
-
-  // Basic URL validation
-  let parsedUrl: URL;
+  // Wrap the ENTIRE handler so any uncaught throw still returns JSON
   try {
-    parsedUrl = new URL(url);
-    if (!["http:", "https:"].includes(parsedUrl.protocol)) throw new Error("bad protocol");
-  } catch {
-    res.status(400).json({ error: "Invalid URL — must start with http:// or https://" });
-    return;
-  }
+    const body = req.body as Record<string, unknown> | undefined;
+    const url = typeof body?.url === "string" ? body.url.trim() : "";
+    const sessionId = typeof body?.sessionId === "string" ? body.sessionId : "default";
 
-  try {
+    if (!url) {
+      res.status(400).json({ error: "url is required" });
+      return;
+    }
+
+    // Basic URL validation
+    let parsedUrl: URL;
+    try {
+      parsedUrl = new URL(url);
+      if (!["http:", "https:"].includes(parsedUrl.protocol)) throw new Error("bad protocol");
+    } catch {
+      res.status(400).json({ error: "Invalid URL — must start with http:// or https://" });
+      return;
+    }
+
     console.log(`[docs] Scraping URL: ${url}`);
 
     // Fetch the page (30 s timeout)
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 30_000);
-    const response = await fetch(url, {
-      signal: controller.signal,
-      headers: { "User-Agent": "TalkToDoc/1.0 (+https://web-beta-virid-14.vercel.app)" },
-    });
-    clearTimeout(timer);
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        signal: controller.signal,
+        headers: {
+          "User-Agent": "Mozilla/5.0 TalkToDoc/1.0",
+          "Accept": "text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.8",
+        },
+      });
+    } finally {
+      clearTimeout(timer);
+    }
+
+    if (!response.ok) {
+      res.status(422).json({ error: `URL returned HTTP ${response.status} — cannot import` });
+      return;
+    }
 
     const contentType = response.headers.get("content-type") ?? "";
     const html = await response.text();
@@ -115,10 +130,10 @@ docsRouter.post("/import-url", async (req, res) => {
       const $ = load(html);
 
       // Remove non-content elements
-      $("script, style, nav, footer, header, aside, noscript, iframe, [aria-hidden=true]").remove();
+      $("script, style, nav, footer, header, aside, noscript, iframe, [aria-hidden='true'], .cookie-banner, #cookie-banner").remove();
 
       // Prefer article/main content; fall back to body
-      const mainEl = $("article, main, [role=main]");
+      const mainEl = $("article, main, [role=main], .content, #content, #main");
       const rawText = (mainEl.length ? mainEl : $("body")).text();
 
       // Collapse whitespace
@@ -126,7 +141,7 @@ docsRouter.post("/import-url", async (req, res) => {
     }
 
     if (!text || text.length < 50) {
-      res.status(422).json({ error: "Could not extract meaningful text from that URL" });
+      res.status(422).json({ error: "Could not extract meaningful text from that URL. The page may require JavaScript to render, or may have very little text content." });
       return;
     }
 
@@ -154,7 +169,9 @@ docsRouter.post("/import-url", async (req, res) => {
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error("[docs] URL import error:", msg);
-    res.status(500).json({ error: `URL import failed: ${msg}` });
+    if (!res.headersSent) {
+      res.status(500).json({ error: `URL import failed: ${msg}` });
+    }
   }
 });
 
