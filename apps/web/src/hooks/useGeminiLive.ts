@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { LiveSessionStatus, TranscriptEntry } from "../types/index.js";
 
-// If VITE_WS_URL is not set (same-origin deployment), derive from window.location
 const _RAW_WS = import.meta.env.VITE_WS_URL ?? "";
 const WS_URL = _RAW_WS || "/ws/live";
-const SAMPLE_RATE = 16000;          // mic capture rate
-const GEMINI_OUTPUT_RATE = 24000;   // Gemini Live output PCM rate
+const SAMPLE_RATE = 16000;
+const GEMINI_OUTPUT_RATE = 24000;
 const PCM_BUFFER_SIZE = 4096;
+const LOOKAHEAD = 0.05; // 50 ms lookahead for smooth playback
 
 function base64ToPcm16(base64: string): Int16Array {
   const binary = atob(base64);
@@ -21,38 +21,39 @@ export function useGeminiLive(sessionId: string) {
   const [volumeLevel, setVolumeLevel] = useState(0);
   const [isListening, setIsListening] = useState(false);
   const [currentVoice, setCurrentVoice] = useState("Charon");
-  // Mirror state → ref so connect() always reads the latest voice
-  const updateVoice = (v: string) => {
-    currentVoiceRef.current = v;
-    setCurrentVoice(v);
-  };
+
+  // Refs that always hold the latest values — used inside WS callbacks to avoid stale closures
+  const statusRef = useRef<LiveSessionStatus>("idle");
+  const isListeningRef = useRef(false);
+  const currentVoiceRef = useRef("Charon");
 
   const wsRef = useRef<WebSocket | null>(null);
   const audioCtxRef = useRef<AudioContext | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const processorRef = useRef<ScriptProcessorNode | null>(null);
-  // Keep voice in a ref so connect() always reads the latest value
-  // without being a stale closure, regardless of how it's called.
-  const currentVoiceRef = useRef("Charon");
 
-  // Playback: single shared AudioContext at 24kHz, with a tiny lookahead
-  // buffer to prevent gaps between chunks (keeps voice smooth).
+  // Playback context — created during user interaction (connect click) to avoid suspension
   const playbackCtxRef = useRef<AudioContext | null>(null);
   const nextPlayTimeRef = useRef<number>(0);
-  const LOOKAHEAD = 0.05; // 50 ms scheduling lookahead
 
-  // Each transcription comes in as incremental fragments from the API.
-  // We append to the last entry of the same role rather than creating a new
-  // bubble for every word, so the conversation reads naturally.
+  // Keep a ref to the latest startMicrophone so session_ready can auto-start it
+  const startMicrophoneRef = useRef<() => Promise<void>>(() => Promise.resolve());
+
+  const setStatusBoth = (s: LiveSessionStatus) => {
+    statusRef.current = s;
+    setStatus(s);
+  };
+
+  const updateVoice = (v: string) => {
+    currentVoiceRef.current = v;
+    setCurrentVoice(v);
+  };
+
   const addTranscriptEntry = useCallback((role: "user" | "assistant", text: string) => {
     setTranscript((prev) => {
       const last = prev[prev.length - 1];
       if (last && last.role === role) {
-        // Append to the running entry
-        return [
-          ...prev.slice(0, -1),
-          { ...last, text: last.text + text },
-        ];
+        return [...prev.slice(0, -1), { ...last, text: last.text + text }];
       }
       return [
         ...prev,
@@ -60,6 +61,8 @@ export function useGeminiLive(sessionId: string) {
       ];
     });
   }, []);
+
+  // ── Audio playback ────────────────────────────────────────────────────────
 
   const getPlaybackCtx = useCallback(() => {
     if (!playbackCtxRef.current || playbackCtxRef.current.state === "closed") {
@@ -72,27 +75,30 @@ export function useGeminiLive(sessionId: string) {
   const playAudioChunk = useCallback((base64Audio: string) => {
     const ctx = getPlaybackCtx();
 
-    // Resume context if suspended (browser autoplay policy)
+    const schedule = () => {
+      const pcm16 = base64ToPcm16(base64Audio);
+      const float32 = new Float32Array(pcm16.length);
+      for (let i = 0; i < pcm16.length; i++) float32[i] = pcm16[i] / 32768;
+
+      const buffer = ctx.createBuffer(1, float32.length, GEMINI_OUTPUT_RATE);
+      buffer.getChannelData(0).set(float32);
+
+      const source = ctx.createBufferSource();
+      source.buffer = buffer;
+      source.connect(ctx.destination);
+
+      const now = ctx.currentTime;
+      const startTime = Math.max(now + LOOKAHEAD, nextPlayTimeRef.current);
+      source.start(startTime);
+      nextPlayTimeRef.current = startTime + buffer.duration;
+    };
+
     if (ctx.state === "suspended") {
-      ctx.resume().catch(() => undefined);
+      // Await resume before scheduling so audio isn't silently dropped
+      ctx.resume().then(schedule).catch(() => undefined);
+    } else {
+      schedule();
     }
-
-    const pcm16 = base64ToPcm16(base64Audio);
-    const float32 = new Float32Array(pcm16.length);
-    for (let i = 0; i < pcm16.length; i++) float32[i] = pcm16[i] / 32768;
-
-    const buffer = ctx.createBuffer(1, float32.length, GEMINI_OUTPUT_RATE);
-    buffer.getChannelData(0).set(float32);
-
-    const source = ctx.createBufferSource();
-    source.buffer = buffer;
-    source.connect(ctx.destination);
-
-    // Schedule contiguous with previous chunk (no gaps = smooth voice)
-    const now = ctx.currentTime;
-    const startTime = Math.max(now + LOOKAHEAD, nextPlayTimeRef.current);
-    source.start(startTime);
-    nextPlayTimeRef.current = startTime + buffer.duration;
   }, [getPlaybackCtx]);
 
   const stopAudioPlayback = useCallback(() => {
@@ -103,25 +109,23 @@ export function useGeminiLive(sessionId: string) {
     nextPlayTimeRef.current = 0;
   }, []);
 
+  // ── Microphone ────────────────────────────────────────────────────────────
+
   const stopMicrophone = useCallback(() => {
-    if (processorRef.current) {
-      processorRef.current.disconnect();
-      processorRef.current = null;
-    }
-    if (audioCtxRef.current) {
-      audioCtxRef.current.close();
-      audioCtxRef.current = null;
-    }
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((t) => t.stop());
-      streamRef.current = null;
-    }
+    processorRef.current?.disconnect();
+    processorRef.current = null;
+    audioCtxRef.current?.close();
+    audioCtxRef.current = null;
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
+    isListeningRef.current = false;
     setIsListening(false);
     setVolumeLevel(0);
   }, []);
 
   const startMicrophone = useCallback(async () => {
     if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
+    if (isListeningRef.current) return; // already listening
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -134,7 +138,6 @@ export function useGeminiLive(sessionId: string) {
       const processor = ctx.createScriptProcessor(PCM_BUFFER_SIZE, 1, 1);
       processorRef.current = processor;
 
-      // Analyser for volume metering
       const analyser = ctx.createAnalyser();
       analyser.fftSize = 256;
       source.connect(analyser);
@@ -144,12 +147,10 @@ export function useGeminiLive(sessionId: string) {
       const dataArray = new Uint8Array(analyser.frequencyBinCount);
 
       processor.onaudioprocess = (e) => {
-        // Volume level
         analyser.getByteFrequencyData(dataArray);
         const avg = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
         setVolumeLevel(avg / 128);
 
-        // Convert float32 → int16 PCM and send as binary
         const input = e.inputBuffer.getChannelData(0);
         const pcm16 = new Int16Array(input.length);
         for (let i = 0; i < input.length; i++) {
@@ -160,60 +161,72 @@ export function useGeminiLive(sessionId: string) {
         }
       };
 
+      isListeningRef.current = true;
       setIsListening(true);
-      setStatus("listening");
+      setStatusBoth("listening");
     } catch (err) {
       console.error("Microphone access error:", err);
-      setStatus("error");
+      setStatusBoth("error");
     }
   }, []);
+
+  // Keep the ref current so ws.onmessage can call the latest startMicrophone
+  useEffect(() => {
+    startMicrophoneRef.current = startMicrophone;
+  }, [startMicrophone]);
+
+  // ── WebSocket connection ──────────────────────────────────────────────────
 
   const connect = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) return;
 
-    setStatus("connecting");
+    setStatusBoth("connecting");
     setTranscript([]);
 
-    // Always read from ref — immune to stale closure and MouseEvent args
+    // Pre-create the playback AudioContext now (during user gesture click)
+    // so it starts in "running" state — avoids browser autoplay suspension.
+    if (!playbackCtxRef.current || playbackCtxRef.current.state === "closed") {
+      playbackCtxRef.current = new AudioContext({ sampleRate: GEMINI_OUTPUT_RATE });
+      nextPlayTimeRef.current = 0;
+    }
+
     const voice = currentVoiceRef.current;
     const url = `${WS_URL}?sessionId=${sessionId}&voice=${encodeURIComponent(voice)}`;
-    // For relative paths, use wss:// on https pages (Cloud Run) or ws:// on http (local dev)
     const wsUrl = url.startsWith("/")
       ? `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}${url}`
       : url;
+
     const ws = new WebSocket(wsUrl);
     wsRef.current = ws;
 
     ws.onopen = () => {
-      console.log("WebSocket connected");
+      console.log("[WS] connected");
     };
 
     ws.onmessage = (event) => {
       try {
-        const msg = JSON.parse(event.data as string) as {
-          type: string;
-          payload?: unknown;
-        };
+        const msg = JSON.parse(event.data as string) as { type: string; payload?: unknown };
 
         switch (msg.type) {
           case "session_ready": {
-            setStatus("ready");
+            setStatusBoth("ready");
             const sr = msg.payload as { voice?: string } | undefined;
             if (sr?.voice) updateVoice(sr.voice);
+            // Auto-start microphone — user already granted permission via the Start button click
+            setTimeout(() => startMicrophoneRef.current(), 300);
             break;
           }
 
           case "voice_changed": {
             const vc = msg.payload as { voice: string };
             updateVoice(vc.voice);
-            // Session is restarting server-side — show connecting briefly
-            setStatus("connecting");
+            setStatusBoth("connecting");
             stopAudioPlayback();
             break;
           }
 
           case "audio":
-            if (status !== "speaking") setStatus("speaking");
+            if (statusRef.current !== "speaking") setStatusBoth("speaking");
             playAudioChunk(msg.payload as string);
             break;
 
@@ -225,7 +238,7 @@ export function useGeminiLive(sessionId: string) {
 
           case "interrupted":
             stopAudioPlayback();
-            setStatus(isListening ? "listening" : "ready");
+            setStatusBoth(isListeningRef.current ? "listening" : "ready");
             break;
 
           case "tool_call": {
@@ -236,34 +249,34 @@ export function useGeminiLive(sessionId: string) {
 
           case "error": {
             const e = msg.payload as { message: string };
-            console.error("Live session error:", e.message);
-            setStatus("error");
+            console.error("[Session] error:", e.message);
+            setStatusBoth("error");
             break;
           }
         }
       } catch (err) {
-        console.error("Failed to parse server message:", err);
+        console.error("[WS] Failed to parse message:", err);
       }
     };
 
     ws.onclose = () => {
-      console.log("WebSocket closed");
-      setStatus("idle");
+      console.log("[WS] closed");
+      setStatusBoth("idle");
       stopMicrophone();
     };
 
     ws.onerror = (err) => {
-      console.error("WebSocket error:", err);
-      setStatus("error");
+      console.error("[WS] error:", err);
+      setStatusBoth("error");
     };
-  }, [sessionId, playAudioChunk, addTranscriptEntry, stopAudioPlayback, stopMicrophone, isListening]);
+  }, [sessionId, playAudioChunk, addTranscriptEntry, stopAudioPlayback, stopMicrophone]);
 
   const disconnect = useCallback(() => {
     stopMicrophone();
     stopAudioPlayback();
     wsRef.current?.close();
     wsRef.current = null;
-    setStatus("idle");
+    setStatusBoth("idle");
   }, [stopMicrophone, stopAudioPlayback]);
 
   const sendText = useCallback((text: string) => {
@@ -273,7 +286,6 @@ export function useGeminiLive(sessionId: string) {
     }
   }, [addTranscriptEntry]);
 
-  // Called from the UI voice picker — updates the ref and sends to server
   const setVoice = useCallback((voice: string) => {
     updateVoice(voice);
     if (wsRef.current?.readyState === WebSocket.OPEN) {
@@ -282,19 +294,16 @@ export function useGeminiLive(sessionId: string) {
   }, []);
 
   const toggleMicrophone = useCallback(async () => {
-    if (isListening) {
+    if (isListeningRef.current) {
       stopMicrophone();
-      setStatus("ready");
+      setStatusBoth("ready");
     } else {
       await startMicrophone();
     }
-  }, [isListening, stopMicrophone, startMicrophone]);
+  }, [stopMicrophone, startMicrophone]);
 
-  // Cleanup on unmount
   useEffect(() => {
-    return () => {
-      disconnect();
-    };
+    return () => { disconnect(); };
   }, [disconnect]);
 
   return {
