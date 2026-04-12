@@ -254,7 +254,7 @@ function WelcomeScreen({
           </svg>
         </div>
         <div className="text-center">
-          <h1 className="text-3xl font-medium text-[#202124]">Talk to Doc</h1>
+          <h1 className="text-3xl font-medium text-[#202124]">Talk to Every Doc</h1>
           <p className="text-google-gray mt-1 text-base">
             Upload documents and chat with your files using AI
           </p>

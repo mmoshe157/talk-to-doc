@@ -87,7 +87,7 @@ export default function App() {
                 <path d="M12 2L2 19.5h20L12 2zm0 3.5l7.5 13H4.5L12 5.5z" />
               </svg>
             </div>
-            <span className="text-[#202124] font-medium text-lg">Talk to Doc</span>
+            <span className="text-[#202124] font-medium text-lg">Talk to Every Doc</span>
           </div>
 
           {/* History breadcrumb */}
