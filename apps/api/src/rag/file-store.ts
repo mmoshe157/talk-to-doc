@@ -36,20 +36,21 @@ function parseDisplayName(displayName: string): { vesselId: string; filename: st
 // ── public API ────────────────────────────────────────────────────────────────
 
 /**
- * Upload a PDF buffer to the Gemini Files API and return the record.
- * Polls until the file transitions to ACTIVE (usually instant for PDFs).
+ * Upload a buffer to the Gemini Files API and return the record.
+ * Polls until the file transitions to ACTIVE.
  */
 export async function uploadFile(
   buffer: Buffer,
   filename: string,
-  vesselId: string
+  vesselId: string,
+  mimeType: string = "application/pdf"
 ): Promise<FileRecord> {
   const displayName = makeDisplayName(vesselId, filename);
-  const blob = new Blob([buffer], { type: "application/pdf" });
+  const blob = new Blob([buffer], { type: mimeType });
 
   let file = await genai.files.upload({
     file: blob,
-    config: { displayName, mimeType: "application/pdf" },
+    config: { displayName, mimeType },
   });
 
   // Wait for processing (typically < 2 s for PDFs)

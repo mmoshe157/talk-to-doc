@@ -50,7 +50,7 @@ docsRouter.get("/list", async (req, res) => {
       filename: f.filename,
       sessionId: f.vesselId,
       expiresAt: f.expiresAt,
-      source: (f.filename.startsWith("drive:") ? "drive" : f.filename.startsWith("gcs:") ? "gcs" : "upload"),
+      source: (f.filename.startsWith("drive:") ? "drive" : f.filename.startsWith("gcs:") ? "gcs" : f.filename.startsWith("url:") ? "url" : "upload"),
     }));
     res.json({ files });
   } catch (err) {
@@ -68,6 +68,93 @@ docsRouter.delete("/:fileId", async (req, res) => {
   } catch (err) {
     console.error("[docs] Delete error:", err);
     res.status(500).json({ error: "Failed to delete document" });
+  }
+});
+
+/** Import a web page by URL — scrapes the text content and stores it as plain text. */
+docsRouter.post("/import-url", async (req, res) => {
+  const { url, sessionId = "default" } = req.body as { url: string; sessionId?: string };
+
+  if (!url) {
+    res.status(400).json({ error: "url is required" });
+    return;
+  }
+
+  // Basic URL validation
+  let parsedUrl: URL;
+  try {
+    parsedUrl = new URL(url);
+    if (!["http:", "https:"].includes(parsedUrl.protocol)) throw new Error("bad protocol");
+  } catch {
+    res.status(400).json({ error: "Invalid URL — must start with http:// or https://" });
+    return;
+  }
+
+  try {
+    console.log(`[docs] Scraping URL: ${url}`);
+
+    // Fetch the page (30 s timeout)
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 30_000);
+    const response = await fetch(url, {
+      signal: controller.signal,
+      headers: { "User-Agent": "TalkToDoc/1.0 (+https://web-beta-virid-14.vercel.app)" },
+    });
+    clearTimeout(timer);
+
+    const contentType = response.headers.get("content-type") ?? "";
+    const html = await response.text();
+
+    let text: string;
+
+    if (contentType.includes("text/plain")) {
+      text = html;
+    } else {
+      // Parse HTML and extract readable text with cheerio
+      const { load } = await import("cheerio");
+      const $ = load(html);
+
+      // Remove non-content elements
+      $("script, style, nav, footer, header, aside, noscript, iframe, [aria-hidden=true]").remove();
+
+      // Prefer article/main content; fall back to body
+      const mainEl = $("article, main, [role=main]");
+      const rawText = (mainEl.length ? mainEl : $("body")).text();
+
+      // Collapse whitespace
+      text = rawText.replace(/[ \t]+/g, " ").replace(/\n{3,}/g, "\n\n").trim();
+    }
+
+    if (!text || text.length < 50) {
+      res.status(422).json({ error: "Could not extract meaningful text from that URL" });
+      return;
+    }
+
+    // Truncate to 500 KB to stay within Gemini Files limits
+    const MAX_BYTES = 500_000;
+    if (Buffer.byteLength(text, "utf8") > MAX_BYTES) {
+      text = Buffer.from(text).subarray(0, MAX_BYTES).toString("utf8");
+    }
+
+    const hostname = parsedUrl.hostname.replace(/^www\./, "");
+    const displayName = `url:${hostname}${parsedUrl.pathname.replace(/\/$/, "") || ""}`;
+
+    const buffer = Buffer.from(text, "utf8");
+    const record = await uploadFile(buffer, displayName, sessionId, "text/plain");
+
+    res.json({
+      message: "Web page imported and ready for search",
+      filename: displayName,
+      sessionId,
+      expiresAt: record.expiresAt,
+      fileId: record.name,
+      source: "url",
+      charCount: text.length,
+    });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("[docs] URL import error:", msg);
+    res.status(500).json({ error: `URL import failed: ${msg}` });
   }
 });
 

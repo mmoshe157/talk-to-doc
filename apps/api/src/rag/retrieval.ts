@@ -27,9 +27,17 @@ export async function searchManual(
     return [];
   }
 
-  // Query all files in parallel — Gemini reads each PDF directly
+  // Determine mime type for each file
+  function mimeTypeForFile(filename: string): string {
+    if (filename.startsWith("url:")) return "text/plain";
+    if (filename.endsWith(".txt")) return "text/plain";
+    return "application/pdf";
+  }
+
+  // Query all files in parallel — Gemini reads each file directly
   const results = await Promise.all(
     files.map(async (file): Promise<ManualChunk | null> => {
+      const mimeType = mimeTypeForFile(file.filename);
       try {
         const response = await genai.models.generateContent({
           model: "gemini-2.0-flash",
@@ -37,18 +45,18 @@ export async function searchManual(
             {
               role: "user",
               parts: [
-                { fileData: { fileUri: file.uri, mimeType: "application/pdf" } },
+                { fileData: { fileUri: file.uri, mimeType } },
                 {
-                  text: `You are a maritime document search assistant.
-Extract the most relevant passages from this technical document that answer the following query:
+                  text: `You are a document search assistant.
+Extract the most relevant passages from this document that answer the following query:
 
 "${query}"
 
 Rules:
-- Return ONLY verbatim text found in the document
+- Return ONLY text found in the document
 - If the document contains nothing relevant, return exactly: NO_RELEVANT_CONTENT
 - Keep the response under 600 words
-- Preserve all technical terms, part numbers, and measurements exactly`,
+- Preserve all technical terms, numbers, and data exactly`,
                 },
               ],
             },

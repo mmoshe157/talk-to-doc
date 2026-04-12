@@ -6,9 +6,11 @@ interface ChatAreaProps {
   transcript: TranscriptEntry[];
   volumeLevel: number;
   isListening: boolean;
+  isHistoryMode?: boolean;
   onToggleMic: () => void;
   onSendText: (text: string) => void;
   onConnect: () => void;
+  onExitHistory?: () => void;
 }
 
 function ThinkingDots() {
@@ -54,9 +56,11 @@ export function ChatArea({
   transcript,
   volumeLevel,
   isListening,
+  isHistoryMode = false,
   onToggleMic,
   onSendText,
   onConnect,
+  onExitHistory,
 }: ChatAreaProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -80,6 +84,21 @@ export function ChatArea({
 
   return (
     <div className="flex flex-col h-full bg-white">
+      {/* ── History banner ──────────────────────────── */}
+      {isHistoryMode && (
+        <div className="flex items-center justify-between px-4 py-2 bg-google-blue-light border-b border-google-blue/20 text-xs text-google-blue">
+          <div className="flex items-center gap-1.5">
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            You're viewing a past session (read-only)
+          </div>
+          <button onClick={onExitHistory} className="font-medium hover:underline">
+            Start new session →
+          </button>
+        </div>
+      )}
+
       {/* ── Messages ────────────────────────────────── */}
       <div className="flex-1 overflow-y-auto px-4 py-6">
         {transcript.length === 0 ? (
@@ -102,8 +121,8 @@ export function ChatArea({
         )}
       </div>
 
-      {/* ── Input bar ────────────────────────────────── */}
-      <div className="border-t border-google-gray-border px-4 py-3 bg-white">
+      {/* ── Input bar (hidden in history mode) ──────── */}
+      {isHistoryMode ? null : <div className="border-t border-google-gray-border px-4 py-3 bg-white">
         <form
           onSubmit={handleSubmit}
           className="max-w-3xl mx-auto flex items-center gap-3 bg-google-gray-light border border-google-gray-border rounded-full px-4 py-2 focus-within:border-google-blue focus-within:ring-1 focus-within:ring-google-blue/30 transition-all"
@@ -174,7 +193,7 @@ export function ChatArea({
           {status === "speaking" && "AI is responding…"}
           {status === "error" && "Connection error — try again"}
         </p>
-      </div>
+      </div>}
     </div>
   );
 }
