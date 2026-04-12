@@ -4,7 +4,7 @@
   "installCommand": "npm install",
   "framework": null,
   "env": {
-    "VITE_API_URL": "https://aegis-api-qnn2agcdea-uc.a.run.app",
-    "VITE_WS_URL": "wss://aegis-api-qnn2agcdea-uc.a.run.app/ws/live"
+    "VITE_API_URL": "https://talk-to-doc-api-1085727639300.us-central1.run.app",
+    "VITE_WS_URL": "wss://talk-to-doc-api-1085727639300.us-central1.run.app/ws/live"
   }
 }

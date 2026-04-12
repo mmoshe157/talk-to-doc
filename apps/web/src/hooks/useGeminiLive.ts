@@ -13,7 +13,7 @@ function base64ToPcm16(base64: string): Int16Array {
   return new Int16Array(bytes.buffer as ArrayBuffer);
 }
 
-export function useGeminiLive(vesselId: string) {
+export function useGeminiLive(sessionId: string) {
   const [status, setStatus] = useState<LiveSessionStatus>("idle");
   const [transcript, setTranscript] = useState<TranscriptEntry[]>([]);
   const [volumeLevel, setVolumeLevel] = useState(0);
@@ -174,7 +174,7 @@ export function useGeminiLive(vesselId: string) {
 
     // Always read from ref — immune to stale closure and MouseEvent args
     const voice = currentVoiceRef.current;
-    const url = `${WS_URL}?vesselId=${vesselId}&voice=${encodeURIComponent(voice)}`;
+    const url = `${WS_URL}?sessionId=${sessionId}&voice=${encodeURIComponent(voice)}`;
     const ws = new WebSocket(url.startsWith("/") ? `ws://${location.host}${url}` : url);
     wsRef.current = ws;
 
@@ -224,7 +224,7 @@ export function useGeminiLive(vesselId: string) {
 
           case "tool_call": {
             const tc = msg.payload as { name: string; query: string };
-            addTranscriptEntry("assistant", `[Searching manuals: "${tc.query}"]`);
+            addTranscriptEntry("assistant", `[Searching documents: "${tc.query}"]`);
             break;
           }
 
@@ -250,7 +250,7 @@ export function useGeminiLive(vesselId: string) {
       console.error("WebSocket error:", err);
       setStatus("error");
     };
-  }, [vesselId, playAudioChunk, addTranscriptEntry, stopAudioPlayback, stopMicrophone, isListening]);
+  }, [sessionId, playAudioChunk, addTranscriptEntry, stopAudioPlayback, stopMicrophone, isListening]);
 
   const disconnect = useCallback(() => {
     stopMicrophone();

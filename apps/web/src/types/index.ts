@@ -1,13 +1,3 @@
-export interface Vessel {
-  id: string;
-  name: string;
-  imo: string;
-  coordinates: { lat: number; lng: number };
-  destination: string;
-  eta: string;
-  status: string;
-}
-
 export interface TranscriptEntry {
   id: string;
   role: "user" | "assistant";
@@ -23,7 +13,10 @@ export type LiveSessionStatus =
   | "speaking"
   | "error";
 
-export interface UploadedManual {
+export interface DocRecord {
+  name: string;       // Gemini file name, e.g. "files/abc123"
   filename: string;
-  uploadedAt: Date;
+  sessionId: string;
+  expiresAt: string;
+  source?: "upload" | "drive" | "gcs";
 }

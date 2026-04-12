@@ -4,32 +4,44 @@ export default {
   theme: {
     extend: {
       colors: {
-        navy: {
-          900: "#0a1628",
-          800: "#0d1f3c",
-          700: "#122650",
-          600: "#1a3566",
-        },
-        aegis: {
-          cyan: "#00d4e8",
-          blue: "#0077ff",
-          amber: "#f59e0b",
-          red: "#ef4444",
-          green: "#10b981",
+        google: {
+          blue:    "#1a73e8",
+          "blue-dark": "#1557b0",
+          "blue-light": "#e8f0fe",
+          red:     "#d93025",
+          yellow:  "#f9ab00",
+          green:   "#1e8e3e",
+          gray:    "#5f6368",
+          "gray-light": "#f8f9fa",
+          "gray-border": "#dadce0",
+          surface: "#ffffff",
         },
       },
       fontFamily: {
-        mono: ["JetBrains Mono", "monospace"],
-        sans: ["Inter", "sans-serif"],
+        sans: ["Google Sans", "Roboto", "Arial", "sans-serif"],
+        mono: ["Roboto Mono", "monospace"],
+      },
+      boxShadow: {
+        google: "0 1px 2px 0 rgba(60,64,67,.3),0 2px 6px 2px rgba(60,64,67,.15)",
+        "google-sm": "0 1px 2px 0 rgba(60,64,67,.3)",
       },
       animation: {
-        "pulse-slow": "pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite",
-        "waveform": "waveform 1.2s ease-in-out infinite",
+        "thinking": "thinking 1.4s ease-in-out infinite",
+        "fade-in": "fadeIn 0.2s ease-out",
+        "slide-up": "slideUp 0.3s ease-out",
       },
       keyframes: {
-        waveform: {
-          "0%, 100%": { transform: "scaleY(0.3)" },
-          "50%": { transform: "scaleY(1)" },
+        thinking: {
+          "0%, 80%, 100%": { transform: "scale(0.6)", opacity: "0.4" },
+          "40%": { transform: "scale(1)", opacity: "1" },
+        },
+        fadeIn: {
+          "0%": { opacity: "0" },
+          "100%": { opacity: "1" },
+        },
+        slideUp: {
+          "0%": { transform: "translateY(8px)", opacity: "0" },
+          "100%": { transform: "translateY(0)", opacity: "1" },
         },
       },
     },

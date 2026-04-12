@@ -57,39 +57,35 @@ function resolveVoice(requested: string): VoiceName {
   return DEFAULT_VOICE;
 }
 
-function buildSystemInstruction(vesselId: string, voiceName: VoiceName): string {
+function buildSystemInstruction(sessionId: string, voiceName: VoiceName): string {
   const gender = VOICES[voiceName];
-  return `You are Aegis Marine Assistant, a professional maritime engineer AI system.
-Your tone is technical, concise, and safety-oriented.
+  return `You are a helpful AI document assistant named "Doc".
+Your tone is friendly, clear, and precise.
 Your current voice is "${voiceName}" (${gender}).
+Session ID: ${sessionId}
 
-Vessel context:
-- Vessel Name: MV Northern Star
-- IMO Number: 9413241
-- Vessel ID: ${vesselId}
-- Current Location: Singapore Strait (1.2897° N, 103.8501° E)
-- Destination: Port of Rotterdam
-- ETA: April 25, 2026
+Your primary capabilities:
+1. Answer questions about documents the user has uploaded (PDFs, reports, manuals, etc.).
+2. When the user asks about content from their files, ALWAYS call the search_documents function
+   to retrieve relevant passages before answering — never guess at document contents.
+3. Summarize documents, extract key points, compare sections, or find specific information.
+4. Help users understand complex technical or legal language in plain terms.
+5. If asked to change your voice (e.g. "use a female voice", "switch to Aoede", "more masculine"),
+   call the change_voice function with the requested voice name or gender.
 
-Your responsibilities:
-1. Answer technical questions about the vessel's machinery, systems, and procedures.
-2. When you need information from technical manuals, SOPs, or schematics, ALWAYS call the search_manual function rather than guessing.
-3. Provide step-by-step guidance for maintenance and troubleshooting tasks.
-4. Identify safety hazards and cite relevant IMO safety regulations.
-5. Prioritize crew safety in every response.
-6. If the user asks to change your voice (e.g. "switch to female voice", "use a male voice",
-   "change to Aoede"), call the change_voice function with the requested voice name or gender.
-
-When a user describes a visual observation (corrosion, leaks, unusual readings), ask clarifying
-questions about location, severity, and when it was first noticed.`;
+Behavior guidelines:
+- Be concise. Bullet points and numbered steps are preferred for complex answers.
+- Cite which document/source you found information in.
+- If you cannot find relevant information in the documents, say so clearly.
+- Do not make up facts or statistics that aren't in the uploaded documents.`;
 }
 
 export async function handleLiveSession(
   ws: WebSocket,
-  vesselId: string,
+  sessionId: string,
   initialVoice: VoiceName = DEFAULT_VOICE
 ) {
-  console.log(`New Gemini Live session — vessel: ${vesselId}, voice: ${initialVoice}`);
+  console.log(`New Gemini Live session — sessionId: ${sessionId}, voice: ${initialVoice}`);
 
   let session: Session | null = null;
   let currentVoice = initialVoice;
@@ -110,21 +106,21 @@ export async function handleLiveSession(
         },
         outputAudioTranscription: {},
         inputAudioTranscription: {},
-        systemInstruction: buildSystemInstruction(vesselId, voice),
+        systemInstruction: buildSystemInstruction(sessionId, voice),
         tools: [
           {
             functionDeclarations: [
               {
-                name: "search_manual",
+                name: "search_documents",
                 description:
-                  "Search the vessel's technical manuals, SOPs, and schematics. Call this whenever you need specific technical information, procedures, or specifications.",
+                  "Search the user's uploaded documents. Call this whenever the user asks about content in their files, wants a summary, or needs specific information from their documents.",
                 parameters: {
                   type: Type.OBJECT,
                   properties: {
                     query: {
                       type: Type.STRING,
                       description:
-                        "A specific technical query, e.g. 'fuel bleeding procedure Wartsila 31'",
+                        "A specific search query about the document content, e.g. 'payment terms' or 'safety procedures'",
                     },
                   },
                   required: ["query"],
@@ -212,26 +208,26 @@ export async function handleLiveSession(
     if (!toolCall?.functionCalls?.length || !session) return;
 
     for (const fc of toolCall.functionCalls) {
-      // ── search_manual ──────────────────────────────────────────────────────
-      if (fc.name === "search_manual") {
+      // ── search_documents ───────────────────────────────────────────────────
+      if (fc.name === "search_documents") {
         const query = (fc.args as Record<string, string>)["query"] ?? "";
-        console.log(`[RAG] search_manual: "${query}"`);
-        send(ws, { type: "tool_call", payload: { name: "search_manual", query } });
+        console.log(`[RAG] search_documents: "${query}"`);
+        send(ws, { type: "tool_call", payload: { name: "search_documents", query } });
 
         let resultText: string;
         try {
-          const chunks = await searchManual(query, vesselId);
+          const chunks = await searchManual(query, sessionId);
           resultText =
             chunks.length > 0
               ? chunks.map((c, i) => `[Source ${i + 1}: ${c.filename}]\n${c.text}`).join("\n\n---\n\n")
-              : "No relevant information found in the vessel's manuals for this query.";
+              : "No relevant information found in the uploaded documents for this query.";
         } catch (err) {
           console.error("[RAG] error:", err);
-          resultText = "Manual search temporarily unavailable.";
+          resultText = "Document search temporarily unavailable.";
         }
 
         session.sendToolResponse({
-          functionResponses: [{ id: fc.id, name: "search_manual", response: { result: resultText } }],
+          functionResponses: [{ id: fc.id, name: "search_documents", response: { result: resultText } }],
         });
       }
 
@@ -337,7 +333,7 @@ export async function handleLiveSession(
   });
 
   ws.on("close", () => {
-    console.log(`Browser WS closed — vessel: ${vesselId}`);
+    console.log(`Browser WS closed — sessionId: ${sessionId}`);
     session?.close();
     session = null;
   });
