@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { AvatarCanvas } from "./AvatarCanvas.js";
+import { GcpDiagramPanel } from "./GcpDiagramPanel.js";
 import { useGeminiLive } from "../hooks/useGeminiLive.js";
 import type { TranscriptEntry } from "../types/index.js";
 
@@ -39,7 +39,6 @@ export function GcpExpertTab({ apiKey }: GcpExpertTabProps) {
   const isConnected = status !== "idle" && status !== "error";
   const isSpeaking = status === "speaking";
 
-  // Auto-scroll on new transcript entries
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [transcript]);
@@ -63,89 +62,66 @@ export function GcpExpertTab({ apiKey }: GcpExpertTabProps) {
 
   return (
     <div className="flex h-full min-h-0">
-      {/* ── Left panel: avatar ────────────────────────────────────────────── */}
-      <div className="w-72 flex-shrink-0 flex flex-col items-center justify-start pt-10 pb-6 px-4 border-r border-google-gray-border bg-[#F8F9FA]">
-        {/* Avatar container */}
-        <div className="relative flex items-center justify-center mb-4">
-          <AvatarCanvas
-            volumeLevel={volumeLevel}
-            isSpeaking={isSpeaking}
-            size={200}
-          />
-
-          {/* Status ring */}
-          <div className={`absolute inset-0 rounded-full border-4 transition-all duration-300 pointer-events-none ${
-            isSpeaking ? "border-google-blue animate-pulse" :
-            isConnected ? "border-google-green" :
-            "border-transparent"
-          }`} />
-        </div>
-
-        {/* Name + title */}
-        <h2 className="text-lg font-medium text-[#202124] mt-2">Arch</h2>
-        <p className="text-sm text-google-gray">Senior GCP Architect</p>
-
-        {/* Status badge */}
-        <div className={`mt-3 px-3 py-1 rounded-full text-xs font-medium ${
-          isSpeaking ? "bg-blue-50 text-google-blue" :
-          isListening ? "bg-green-50 text-google-green" :
-          isConnected ? "bg-gray-100 text-google-gray" :
-          "bg-gray-100 text-google-gray"
-        }`}>
-          {isSpeaking ? "Speaking…" : isListening ? "Listening…" : isConnected ? "Ready" : "Offline"}
-        </div>
-
-        {/* GCP badge */}
-        <div className="mt-6 flex items-center gap-2 bg-white rounded-xl border border-google-gray-border px-4 py-3 w-full">
-          <GcpIcon className="w-6 h-6 flex-shrink-0" />
-          <div>
-            <p className="text-xs font-medium text-[#202124]">GCP Expert Mode</p>
-            <p className="text-xs text-google-gray">Architecture · IAM · Networking</p>
-          </div>
-        </div>
-
-        {/* Voice selector */}
-        {isConnected && (
-          <div className="mt-4 w-full">
-            <label className="text-xs text-google-gray mb-1 block">Voice</label>
-            <select
-              value={currentVoice}
-              onChange={(e) => setVoice(e.target.value)}
-              className="text-sm border border-google-gray-border rounded-lg px-3 py-1.5 w-full text-[#202124] focus:outline-none focus:border-google-blue bg-white"
-            >
-              {["Charon","Puck","Fenrir","Orus","Aoede","Kore","Leda","Zephyr"].map((v) => (
-                <option key={v} value={v}>{v}</option>
-              ))}
-            </select>
-          </div>
-        )}
-
-        {/* Connect / Disconnect */}
-        <div className="mt-auto pt-6 w-full">
-          {!isConnected ? (
-            <button onClick={connect} className="btn-primary w-full justify-center">
-              <MicIcon className="w-4 h-4" />
-              Talk to Arch
-            </button>
-          ) : (
-            <button
-              onClick={disconnect}
-              className="w-full btn-outline text-google-red border-google-red/30 hover:bg-red-50 justify-center"
-            >
-              End Session
-            </button>
-          )}
-        </div>
+      {/* ── Left panel: architecture diagrams ──────────────────────────────── */}
+      <div className="w-96 flex-shrink-0 flex flex-col border-r border-google-gray-border bg-[#F8F9FA] overflow-hidden">
+        <GcpDiagramPanel />
       </div>
 
-      {/* ── Right panel: chat ─────────────────────────────────────────────── */}
+      {/* ── Right panel: Gemini Live voice chat ────────────────────────────── */}
       <div className="flex-1 flex flex-col min-w-0">
+        {/* Status bar */}
+        <div className="flex items-center justify-between px-4 py-2 border-b border-google-gray-border bg-white flex-shrink-0">
+          <div className="flex items-center gap-2">
+            <div className={`w-2 h-2 rounded-full transition-colors ${
+              isSpeaking      ? "bg-google-blue animate-pulse" :
+              isListening     ? "bg-google-green animate-pulse" :
+              isConnected     ? "bg-google-green" :
+              status === "error" ? "bg-google-red" :
+              "bg-google-gray-border"
+            }`} />
+            <span className="text-xs text-google-gray">
+              {isSpeaking ? "Arch is speaking…" :
+               isListening ? "Listening…" :
+               isConnected ? "Ready — ask anything" :
+               "Start a session to talk with Arch"}
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2">
+            {isConnected && (
+              <select
+                value={currentVoice}
+                onChange={(e) => setVoice(e.target.value)}
+                className="text-xs border border-google-gray-border rounded-full px-3 py-1 text-google-gray focus:outline-none focus:border-google-blue bg-white"
+              >
+                {["Charon","Puck","Fenrir","Orus","Aoede","Kore","Leda","Zephyr"].map((v) => (
+                  <option key={v} value={v}>{v}</option>
+                ))}
+              </select>
+            )}
+
+            {!isConnected ? (
+              <button onClick={connect} className="btn-primary text-xs py-1.5 px-3">
+                <MicIcon className="w-3.5 h-3.5" />
+                Talk to Arch
+              </button>
+            ) : (
+              <button
+                onClick={disconnect}
+                className="text-xs btn-outline text-google-red border-google-red/30 hover:bg-red-50 py-1.5 px-3"
+              >
+                End session
+              </button>
+            )}
+          </div>
+        </div>
+
         {/* Transcript scroll area */}
-        <div className="flex-1 overflow-y-auto px-6 py-6">
+        <div className="flex-1 overflow-y-auto px-5 py-5">
           {transcript.length === 0 ? (
             <GcpWelcome onChip={handleChip} status={status} onConnect={connect} />
           ) : (
-            <div className="max-w-3xl mx-auto space-y-5">
+            <div className="max-w-3xl mx-auto space-y-4">
               {transcript.map((entry) => (
                 <GcpMessage key={entry.id} entry={entry} />
               ))}
@@ -156,9 +132,11 @@ export function GcpExpertTab({ apiKey }: GcpExpertTabProps) {
         </div>
 
         {/* Input bar */}
-        <div className="border-t border-google-gray-border px-4 py-3 bg-white">
-          <form onSubmit={handleSend} className="flex items-center gap-2 bg-[#F8F9FA] rounded-2xl border border-google-gray-border px-4 py-2">
-            {/* Mic button */}
+        <div className="border-t border-google-gray-border px-4 py-3 bg-white flex-shrink-0">
+          <form
+            onSubmit={handleSend}
+            className="flex items-center gap-2 bg-[#F8F9FA] rounded-2xl border border-google-gray-border px-4 py-2"
+          >
             <button
               type="button"
               onClick={isConnected ? toggleMicrophone : connect}
@@ -174,14 +152,30 @@ export function GcpExpertTab({ apiKey }: GcpExpertTabProps) {
               <MicIcon className="w-4 h-4" />
             </button>
 
+            {/* Volume indicator — pulses when AI is speaking */}
+            {isSpeaking && volumeLevel > 0.05 && (
+              <div className="flex items-center gap-0.5 w-8 flex-shrink-0">
+                {[0.4, 0.7, 1, 0.7, 0.4].map((scale, i) => (
+                  <span
+                    key={i}
+                    className="w-0.5 rounded-full bg-google-blue"
+                    style={{
+                      height: `${Math.max(4, volumeLevel * scale * 24)}px`,
+                      animation: `thinking 0.8s ease-in-out ${i * 0.1}s infinite`,
+                    }}
+                  />
+                ))}
+              </div>
+            )}
+
             <input
               ref={inputRef}
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}
               placeholder={
-                !isConnected ? "Click 'Talk to Arch' to start…" :
-                isListening ? "Listening… (or type)" :
-                "Ask a GCP question…"
+                !isConnected ? "Click 'Talk to Arch' to start, or type…" :
+                isListening  ? "Listening… (or type a question)" :
+                               "Ask about GCP architecture, IAM, networking…"
               }
               disabled={!isConnected}
               className="flex-1 bg-transparent border-none outline-none text-sm text-[#202124] placeholder:text-google-gray disabled:opacity-50"
@@ -195,13 +189,6 @@ export function GcpExpertTab({ apiKey }: GcpExpertTabProps) {
               <SendIcon className="w-4 h-4" />
             </button>
           </form>
-
-          <p className="text-center text-xs text-google-gray mt-2">
-            {!isConnected ? "Start a session to talk with Arch, your GCP advisor" :
-             isSpeaking ? "Arch is answering…" :
-             isListening ? "Speak your question" :
-             "Ask anything about GCP architecture, IAM, networking, and more"}
-          </p>
         </div>
       </div>
     </div>
@@ -220,22 +207,25 @@ function GcpWelcome({
   onConnect: () => void;
 }) {
   return (
-    <div className="flex flex-col items-center justify-center h-full text-center px-8 py-12">
+    <div className="flex flex-col items-center justify-center h-full text-center px-6 py-12">
       <div className="w-16 h-16 mb-5 rounded-full bg-google-blue/10 flex items-center justify-center">
-        <GcpIcon className="w-9 h-9" />
+        <GcpLogo className="w-9 h-9" />
       </div>
       <h2 className="text-2xl font-medium text-[#202124] mb-2">Ask Arch anything about GCP</h2>
-      <p className="text-sm text-google-gray max-w-md mb-8">
-        Arch is your senior GCP architect advisor. Ask about architecture decisions,
-        IAM policies, networking, cost optimization, and best practices.
+      <p className="text-sm text-google-gray max-w-md mb-3 leading-relaxed">
+        Arch is your senior GCP architect. Explore the architecture diagrams on the left,
+        then ask questions — by voice or text.
+      </p>
+      <p className="text-xs text-google-gray mb-8 italic">
+        "Click a diagram topic → ask Arch to explain it in detail"
       </p>
 
-      {status === "idle" || status === "error" ? (
+      {(status === "idle" || status === "error") && (
         <button onClick={onConnect} className="btn-primary mb-8">
           <MicIcon className="w-4 h-4" />
           Start talking with Arch
         </button>
-      ) : null}
+      )}
 
       <div className="flex flex-wrap gap-2 justify-center max-w-xl">
         {GCP_TOPICS.map((topic) => (
@@ -271,14 +261,16 @@ function GcpMessage({ entry }: { entry: TranscriptEntry }) {
     <div className={`flex gap-3 ${isUser ? "flex-row-reverse" : "flex-row"}`}>
       {!isUser && (
         <div className="w-8 h-8 rounded-full bg-google-blue flex items-center justify-center flex-shrink-0 mt-1">
-          <GcpIcon className="w-4 h-4 text-white" />
+          <GcpLogo className="w-4 h-4 text-white" />
         </div>
       )}
-      <div className={`max-w-[75%] px-4 py-3 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap ${
-        isUser
-          ? "bg-google-blue text-white rounded-tr-sm"
-          : "bg-[#F8F9FA] text-[#202124] border border-google-gray-border rounded-tl-sm"
-      }`}>
+      <div
+        className={`max-w-[76%] px-4 py-3 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap ${
+          isUser
+            ? "bg-google-blue text-white rounded-tr-sm"
+            : "bg-[#F8F9FA] text-[#202124] border border-google-gray-border rounded-tl-sm"
+        }`}
+      >
         {entry.text}
       </div>
     </div>
@@ -289,7 +281,7 @@ function ThinkingDots() {
   return (
     <div className="flex gap-3">
       <div className="w-8 h-8 rounded-full bg-google-blue flex items-center justify-center flex-shrink-0 mt-1">
-        <GcpIcon className="w-4 h-4 text-white" />
+        <GcpLogo className="w-4 h-4 text-white" />
       </div>
       <div className="bg-[#F8F9FA] border border-google-gray-border px-4 py-3 rounded-2xl rounded-tl-sm flex items-center gap-1.5">
         {[0, 1, 2].map((i) => (
@@ -306,7 +298,7 @@ function ThinkingDots() {
 
 // ── Icons ──────────────────────────────────────────────────────────────────────
 
-function GcpIcon({ className }: { className?: string }) {
+function GcpLogo({ className }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none">
       <path d="M12 2L2 19.5h20L12 2z" fill="#4285F4" opacity="0.2" />
