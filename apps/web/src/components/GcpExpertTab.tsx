@@ -353,7 +353,7 @@ export function GcpExpertTab({ apiKey }: GcpExpertTabProps) {
               ) : (
                 <div className="max-w-3xl mx-auto space-y-3">
                   {/* User questions shown small */}
-                  {transcript.map((entry, i) => {
+                  {transcript.map((entry) => {
                     if (entry.role === "user") {
                       return (
                         <div key={entry.id} className="flex items-start gap-2 text-xs text-google-gray">
