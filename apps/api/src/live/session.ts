@@ -31,7 +31,8 @@ interface ServerMessage {
     | "interrupted"
     | "error"
     | "session_ready"
-    | "voice_changed";
+    | "voice_changed"
+    | "diagram";
   payload?: unknown;
 }
 
@@ -90,6 +91,20 @@ Your expertise covers:
 - Cost optimization: committed use discounts, rightsizing, budgets & alerts
 - Architecture patterns: microservices, event-driven, multi-region HA, disaster recovery
 - Migration: lift-and-shift, re-platform, re-architect strategies
+
+DIAGRAM RENDERING — CRITICAL RULE:
+Whenever you describe, suggest, design, or explain any GCP architecture — ALWAYS call render_diagram
+immediately with a Mermaid flowchart of that architecture. This includes:
+- Answering "how would you design X on GCP"
+- Comparing two approaches (render the recommended one)
+- Explaining a GCP pattern or reference architecture
+- Responding to questions about specific services that involve a system design
+Use "graph TD" or "graph LR" syntax. Keep the chart focused: 5-12 nodes, clear labels.
+Example of a good chart:
+  graph TD
+    User([User]) --> LB[Cloud Load Balancer]
+    LB --> CR[Cloud Run]
+    CR --> DB[(Cloud SQL)]
 
 Behavior guidelines:
 - Be direct and technical. Your audience is experienced Cloud Engineers.
@@ -171,8 +186,34 @@ export async function handleLiveSession(
       },
     };
 
+    const renderDiagramDecl: FnDecl = {
+      name: "render_diagram",
+      description:
+        "Render a GCP architecture diagram on the user's screen. ALWAYS call this when describing, suggesting, or explaining any architecture or system design. Pass a valid Mermaid flowchart (graph TD or graph LR).",
+      parameters: {
+        type: Type.OBJECT,
+        properties: {
+          title: {
+            type: Type.STRING,
+            description: "Short descriptive title for the architecture (e.g. 'Multi-Region Cloud Run with Spanner')",
+          },
+          chart: {
+            type: Type.STRING,
+            description: "A valid Mermaid flowchart definition. Use graph TD or graph LR. Keep nodes to 5-12. No markdown fences — just the raw mermaid syntax starting with 'graph'.",
+          },
+          description: {
+            type: Type.STRING,
+            description: "One or two sentences summarising what this architecture does and why it is recommended.",
+          },
+        },
+        required: ["title", "chart", "description"],
+      },
+    };
+
     const functionDeclarations: FnDecl[] =
-      mode === "docs" ? [searchDocsDecl, changeVoiceDecl] : [changeVoiceDecl];
+      mode === "docs"
+        ? [searchDocsDecl, changeVoiceDecl]
+        : [renderDiagramDecl, changeVoiceDecl];
 
     session = await genai.live.connect({
       model: LIVE_MODEL,
@@ -269,6 +310,29 @@ export async function handleLiveSession(
 
         session.sendToolResponse({
           functionResponses: [{ id: fc.id, name: "search_documents", response: { result: resultText } }],
+        });
+      }
+
+      // ── render_diagram (gcp mode only) ────────────────────────────────────
+      if (fc.name === "render_diagram") {
+        const args = fc.args as Record<string, string>;
+        const title = args["title"] ?? "Architecture Diagram";
+        const chart = args["chart"] ?? "";
+        const description = args["description"] ?? "";
+        console.log(`[Diagram] render_diagram: "${title}"`);
+
+        // Push diagram to browser — it will render it full-screen
+        send(ws, { type: "diagram", payload: { title, chart, description } });
+
+        // Acknowledge to Gemini so it continues speaking
+        session.sendToolResponse({
+          functionResponses: [
+            {
+              id: fc.id,
+              name: "render_diagram",
+              response: { result: "Diagram rendered on screen." },
+            },
+          ],
         });
       }
 

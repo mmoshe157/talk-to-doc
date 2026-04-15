@@ -15,12 +15,19 @@ function base64ToPcm16(base64: string): Int16Array {
   return new Int16Array(bytes.buffer as ArrayBuffer);
 }
 
+export interface LiveDiagram {
+  title: string;
+  chart: string;
+  description: string;
+}
+
 export function useGeminiLive(sessionId: string, apiKey = "", mode = "docs") {
   const [status, setStatus] = useState<LiveSessionStatus>("idle");
   const [transcript, setTranscript] = useState<TranscriptEntry[]>([]);
   const [volumeLevel, setVolumeLevel] = useState(0);
   const [isListening, setIsListening] = useState(false);
   const [currentVoice, setCurrentVoice] = useState("Charon");
+  const [currentDiagram, setCurrentDiagram] = useState<LiveDiagram | null>(null);
 
   // Refs that always hold the latest values — used inside WS callbacks to avoid stale closures
   const statusRef = useRef<LiveSessionStatus>("idle");
@@ -248,6 +255,12 @@ export function useGeminiLive(sessionId: string, apiKey = "", mode = "docs") {
             break;
           }
 
+          case "diagram": {
+            const d = msg.payload as LiveDiagram;
+            setCurrentDiagram(d);
+            break;
+          }
+
           case "error": {
             const e = msg.payload as { message: string };
             console.error("[Session] error:", e.message);
@@ -278,6 +291,7 @@ export function useGeminiLive(sessionId: string, apiKey = "", mode = "docs") {
     wsRef.current?.close();
     wsRef.current = null;
     setStatusBoth("idle");
+    setCurrentDiagram(null);
   }, [stopMicrophone, stopAudioPlayback]);
 
   const sendText = useCallback((text: string) => {
@@ -307,16 +321,20 @@ export function useGeminiLive(sessionId: string, apiKey = "", mode = "docs") {
     return () => { disconnect(); };
   }, [disconnect]);
 
+  const clearDiagram = useCallback(() => setCurrentDiagram(null), []);
+
   return {
     status,
     transcript,
     volumeLevel,
     isListening,
     currentVoice,
+    currentDiagram,
     connect,
     disconnect,
     sendText,
     setVoice,
     toggleMicrophone,
+    clearDiagram,
   };
 }
