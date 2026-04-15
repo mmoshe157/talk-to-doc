@@ -86,9 +86,12 @@ wss.on("connection", (ws, req) => {
   const params = new URL(req.url ?? "", `http://localhost`).searchParams;
   const sessionId = params.get("sessionId") ?? params.get("vesselId") ?? "default";
   const voice = (params.get("voice") ?? "Charon") as VoiceName;
-  handleLiveSession(ws, sessionId, voice);
+  const apiKey = params.get("apiKey") ?? undefined;
+  const rawMode = params.get("mode") ?? "docs";
+  const mode: "docs" | "gcp" = rawMode === "gcp" ? "gcp" : "docs";
+  handleLiveSession(ws, sessionId, voice, apiKey, mode);
 });
 
 server.listen(PORT, () => {
-  console.log(`Talk to Doc API running on port ${PORT}`);
+  console.log(`Talk to Every Doc API running on port ${PORT}`);
 });

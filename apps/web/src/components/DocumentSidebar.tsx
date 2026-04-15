@@ -6,6 +6,7 @@ const API = import.meta.env.VITE_API_URL ?? "";
 
 interface DocumentSidebarProps {
   sessionId: string;
+  apiKey: string;
   sessions: SessionMeta[];
   onLoadSession: (session: FullSession) => void;
   onDeleteSession: (id: string) => void;
@@ -16,6 +17,7 @@ type SidebarTab = "docs" | "history";
 
 export function DocumentSidebar({
   sessionId,
+  apiKey,
   sessions,
   onLoadSession,
   onDeleteSession,
@@ -42,7 +44,7 @@ export function DocumentSidebar({
       </div>
 
       {tab === "docs" ? (
-        <DocumentsTab sessionId={sessionId} />
+        <DocumentsTab sessionId={sessionId} apiKey={apiKey} />
       ) : (
         <HistoryTab
           sessions={sessions}
@@ -56,7 +58,7 @@ export function DocumentSidebar({
 
 // ─── Documents Tab ────────────────────────────────────────────────────────────
 
-function DocumentsTab({ sessionId }: { sessionId: string }) {
+function DocumentsTab({ sessionId, apiKey }: { sessionId: string; apiKey: string }) {
   const [docs, setDocs] = useState<DocRecord[]>([]);
   const [uploading, setUploading] = useState(false);
   const [importMode, setImportMode] = useState<ImportMode>(null);
@@ -68,14 +70,16 @@ function DocumentsTab({ sessionId }: { sessionId: string }) {
 
   const loadDocs = useCallback(async () => {
     try {
-      const res = await fetch(`${API}/api/docs/list?sessionId=${encodeURIComponent(sessionId)}`);
+      const res = await fetch(`${API}/api/docs/list?sessionId=${encodeURIComponent(sessionId)}`, {
+        headers: apiKey ? { "X-Api-Key": apiKey } : {},
+      });
       if (!res.ok) return;
       const data = (await res.json()) as { files: DocRecord[] };
       setDocs(data.files ?? []);
     } catch {
       // silent
     }
-  }, [sessionId]);
+  }, [sessionId, apiKey]);
 
   useEffect(() => { loadDocs(); }, [loadDocs]);
 
@@ -90,7 +94,11 @@ function DocumentsTab({ sessionId }: { sessionId: string }) {
       const form = new FormData();
       form.append("file", file);
       form.append("sessionId", sessionId);
-      const res = await fetch(`${API}/api/docs/upload`, { method: "POST", body: form });
+      const res = await fetch(`${API}/api/docs/upload`, {
+        method: "POST",
+        headers: apiKey ? { "X-Api-Key": apiKey } : {},
+        body: form,
+      });
       if (!res.ok) {
         let msg = `Upload failed (${res.status})`;
         try {
@@ -127,7 +135,10 @@ function DocumentsTab({ sessionId }: { sessionId: string }) {
     try {
       const res = await fetch(`${API}/api/docs/${endpoint}`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(apiKey ? { "X-Api-Key": apiKey } : {}),
+        },
         body: JSON.stringify({ url: importValue.trim(), sessionId }),
       });
       if (!res.ok) {
@@ -160,7 +171,10 @@ function DocumentsTab({ sessionId }: { sessionId: string }) {
   async function deleteDoc(name: string) {
     const id = name.replace("files/", "");
     try {
-      await fetch(`${API}/api/docs/${encodeURIComponent(id)}`, { method: "DELETE" });
+      await fetch(`${API}/api/docs/${encodeURIComponent(id)}`, {
+        method: "DELETE",
+        headers: apiKey ? { "X-Api-Key": apiKey } : {},
+      });
       setDocs((prev) => prev.filter((d) => d.name !== name));
     } catch {
       setError("Delete failed");

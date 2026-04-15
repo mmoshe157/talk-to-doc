@@ -15,7 +15,7 @@ function base64ToPcm16(base64: string): Int16Array {
   return new Int16Array(bytes.buffer as ArrayBuffer);
 }
 
-export function useGeminiLive(sessionId: string) {
+export function useGeminiLive(sessionId: string, apiKey = "", mode = "docs") {
   const [status, setStatus] = useState<LiveSessionStatus>("idle");
   const [transcript, setTranscript] = useState<TranscriptEntry[]>([]);
   const [volumeLevel, setVolumeLevel] = useState(0);
@@ -191,7 +191,8 @@ export function useGeminiLive(sessionId: string) {
     }
 
     const voice = currentVoiceRef.current;
-    const url = `${WS_URL}?sessionId=${sessionId}&voice=${encodeURIComponent(voice)}`;
+    const keyParam = apiKey ? `&apiKey=${encodeURIComponent(apiKey)}` : "";
+    const url = `${WS_URL}?sessionId=${sessionId}&voice=${encodeURIComponent(voice)}&mode=${mode}${keyParam}`;
     const wsUrl = url.startsWith("/")
       ? `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}${url}`
       : url;
@@ -269,7 +270,7 @@ export function useGeminiLive(sessionId: string) {
       console.error("[WS] error:", err);
       setStatusBoth("error");
     };
-  }, [sessionId, playAudioChunk, addTranscriptEntry, stopAudioPlayback, stopMicrophone]);
+  }, [sessionId, apiKey, mode, playAudioChunk, addTranscriptEntry, stopAudioPlayback, stopMicrophone]);
 
   const disconnect = useCallback(() => {
     stopMicrophone();

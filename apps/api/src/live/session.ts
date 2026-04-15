@@ -3,8 +3,6 @@ import { GoogleGenAI, Modality, Type } from "@google/genai";
 import type { LiveServerMessage, Session } from "@google/genai";
 import { searchManual } from "../rag/retrieval.js";
 
-const genai = new GoogleGenAI({ apiKey: process.env.GOOGLE_AI_API_KEY ?? "" });
-
 const LIVE_MODEL = "models/gemini-3.1-flash-live-preview";
 
 // Available Gemini Live voices with gender classification
@@ -45,19 +43,16 @@ function send(ws: WebSocket, msg: ServerMessage) {
 
 function resolveVoice(requested: string): VoiceName {
   const lower = requested.toLowerCase();
-
-  // Direct name match
   const direct = Object.keys(VOICES).find((v) => v.toLowerCase() === lower);
   if (direct) return direct as VoiceName;
-
-  // Gender alias: "female" → first female voice, "male" → first male voice
   if (lower === "female" || lower === "woman") return "Aoede";
   if (lower === "male" || lower === "man") return "Charon";
-
   return DEFAULT_VOICE;
 }
 
-function buildSystemInstruction(sessionId: string, voiceName: VoiceName): string {
+// ── System instructions ────────────────────────────────────────────────────────
+
+function buildDocsSystemInstruction(sessionId: string, voiceName: VoiceName): string {
   const gender = VOICES[voiceName];
   return `You are a helpful AI document assistant named "Doc".
 Your tone is friendly, clear, and precise.
@@ -80,20 +75,104 @@ Behavior guidelines:
 - Do not make up facts or statistics that aren't in the uploaded documents.`;
 }
 
+function buildGcpSystemInstruction(voiceName: VoiceName): string {
+  const gender = VOICES[voiceName];
+  return `You are "Arch", a senior Google Cloud Platform architect and trusted advisor to Cloud Engineers.
+Your current voice is "${voiceName}" (${gender}).
+
+Your expertise covers:
+- GCP core services: Compute Engine, GKE, Cloud Run, App Engine, Cloud Functions
+- Data & Analytics: BigQuery, Dataflow, Pub/Sub, Dataproc, Looker
+- Networking: VPC, Cloud Load Balancing, Cloud CDN, Cloud Armor, Private Service Connect
+- Security & IAM: IAM roles, Org policies, VPC Service Controls, Secret Manager, BeyondCorp
+- Storage: Cloud Storage, Cloud SQL, Spanner, Firestore, Bigtable, Memorystore
+- Operations: Cloud Monitoring, Cloud Logging, Error Reporting, Profiler, Trace
+- Cost optimization: committed use discounts, rightsizing, budgets & alerts
+- Architecture patterns: microservices, event-driven, multi-region HA, disaster recovery
+- Migration: lift-and-shift, re-platform, re-architect strategies
+
+Behavior guidelines:
+- Be direct and technical. Your audience is experienced Cloud Engineers.
+- Always recommend the most appropriate GCP service for the use case with clear reasoning.
+- Mention relevant limitations, quotas, or gotchas when they matter.
+- Cite official GCP documentation or Well-Architected Framework when relevant.
+- Suggest cost-saving alternatives when a cheaper option fits the requirement.
+- If asked to change your voice, call the change_voice function.
+- Keep answers focused — no filler phrases. Use bullet points for multi-step guidance.`;
+}
+
 export async function handleLiveSession(
   ws: WebSocket,
   sessionId: string,
-  initialVoice: VoiceName = DEFAULT_VOICE
+  initialVoice: VoiceName = DEFAULT_VOICE,
+  apiKey?: string,
+  mode: "docs" | "gcp" = "docs"
 ) {
-  console.log(`New Gemini Live session — sessionId: ${sessionId}, voice: ${initialVoice}`);
+  const effectiveApiKey = apiKey ?? process.env.GOOGLE_AI_API_KEY ?? "";
+  const genai = new GoogleGenAI({ apiKey: effectiveApiKey });
+
+  console.log(`New Gemini Live session — sessionId: ${sessionId}, voice: ${initialVoice}, mode: ${mode}`);
 
   let session: Session | null = null;
   let currentVoice = initialVoice;
-  // Prevent re-entrant restarts
   let restarting = false;
+
+  function getSystemInstruction(voice: VoiceName): string {
+    return mode === "gcp"
+      ? buildGcpSystemInstruction(voice)
+      : buildDocsSystemInstruction(sessionId, voice);
+  }
 
   async function startSession(voice: VoiceName) {
     currentVoice = voice;
+
+    // Tools differ by mode — GCP mode only needs change_voice (no doc search)
+    type FnDecl = {
+      name: string;
+      description: string;
+      parameters: {
+        type: Type;
+        properties: Record<string, { type: Type; description: string }>;
+        required: string[];
+      };
+    };
+
+    const changeVoiceDecl: FnDecl = {
+      name: "change_voice",
+      description:
+        'Change the assistant voice. Call this when the user asks to switch voice gender or a specific voice name. Gender aliases: "male" → Charon, "female" → Aoede.',
+      parameters: {
+        type: Type.OBJECT,
+        properties: {
+          voice: {
+            type: Type.STRING,
+            description:
+              'Voice name or gender. Accepted values: "male", "female", "Charon", "Puck", "Fenrir", "Orus", "Aoede", "Kore", "Leda", "Zephyr"',
+          },
+        },
+        required: ["voice"],
+      },
+    };
+
+    const searchDocsDecl: FnDecl = {
+      name: "search_documents",
+      description:
+        "Search the user's uploaded documents. Call this whenever the user asks about content in their files, wants a summary, or needs specific information from their documents.",
+      parameters: {
+        type: Type.OBJECT,
+        properties: {
+          query: {
+            type: Type.STRING,
+            description:
+              "A specific search query about the document content, e.g. 'payment terms' or 'safety procedures'",
+          },
+        },
+        required: ["query"],
+      },
+    };
+
+    const functionDeclarations: FnDecl[] =
+      mode === "docs" ? [searchDocsDecl, changeVoiceDecl] : [changeVoiceDecl];
 
     session = await genai.live.connect({
       model: LIVE_MODEL,
@@ -106,49 +185,12 @@ export async function handleLiveSession(
         },
         outputAudioTranscription: {},
         inputAudioTranscription: {},
-        systemInstruction: buildSystemInstruction(sessionId, voice),
-        tools: [
-          {
-            functionDeclarations: [
-              {
-                name: "search_documents",
-                description:
-                  "Search the user's uploaded documents. Call this whenever the user asks about content in their files, wants a summary, or needs specific information from their documents.",
-                parameters: {
-                  type: Type.OBJECT,
-                  properties: {
-                    query: {
-                      type: Type.STRING,
-                      description:
-                        "A specific search query about the document content, e.g. 'payment terms' or 'safety procedures'",
-                    },
-                  },
-                  required: ["query"],
-                },
-              },
-              {
-                name: "change_voice",
-                description:
-                  'Change the assistant voice. Call this when the user asks to switch voice gender or a specific voice name. Gender aliases: "male" → Charon, "female" → Aoede.',
-                parameters: {
-                  type: Type.OBJECT,
-                  properties: {
-                    voice: {
-                      type: Type.STRING,
-                      description:
-                        'Voice name or gender. Accepted values: "male", "female", "Charon", "Puck", "Fenrir", "Orus", "Aoede", "Kore", "Leda", "Zephyr"',
-                    },
-                  },
-                  required: ["voice"],
-                },
-              },
-            ],
-          },
-        ],
+        systemInstruction: getSystemInstruction(voice),
+        tools: [{ functionDeclarations }],
       },
       callbacks: {
         onopen: () => {
-          console.log(`Gemini Live open — voice: ${voice}`);
+          console.log(`Gemini Live open — voice: ${voice}, mode: ${mode}`);
           send(ws, { type: "session_ready", payload: { voice } });
         },
 
@@ -191,7 +233,6 @@ export async function handleLiveSession(
         onclose: (e: { code?: number; reason?: string }) => {
           const reason = e.reason ? ` reason: ${e.reason}` : "";
           console.log(`Gemini Live closed (code: ${e.code}${reason})`);
-          // Don't send error if we're restarting due to voice change
           if (!restarting && e.code !== 1000 && e.code !== 1001) {
             send(ws, {
               type: "error",
@@ -208,7 +249,7 @@ export async function handleLiveSession(
     if (!toolCall?.functionCalls?.length || !session) return;
 
     for (const fc of toolCall.functionCalls) {
-      // ── search_documents ───────────────────────────────────────────────────
+      // ── search_documents (docs mode only) ─────────────────────────────────
       if (fc.name === "search_documents") {
         const query = (fc.args as Record<string, string>)["query"] ?? "";
         console.log(`[RAG] search_documents: "${query}"`);
@@ -216,7 +257,7 @@ export async function handleLiveSession(
 
         let resultText: string;
         try {
-          const chunks = await searchManual(query, sessionId);
+          const chunks = await searchManual(query, sessionId, effectiveApiKey);
           resultText =
             chunks.length > 0
               ? chunks.map((c, i) => `[Source ${i + 1}: ${c.filename}]\n${c.text}`).join("\n\n---\n\n")
@@ -237,7 +278,6 @@ export async function handleLiveSession(
         const newVoice = resolveVoice(requested);
 
         if (newVoice === currentVoice) {
-          // Already using this voice — just confirm
           session.sendToolResponse({
             functionResponses: [
               {
@@ -252,7 +292,6 @@ export async function handleLiveSession(
 
         console.log(`[Voice] Switching from ${currentVoice} → ${newVoice}`);
 
-        // Tell the AI the switch is happening, then restart
         session.sendToolResponse({
           functionResponses: [
             {
@@ -265,16 +304,12 @@ export async function handleLiveSession(
           ],
         });
 
-        // Give the model ~1.5 s to speak the farewell, then restart
         setTimeout(async () => {
           if (!ws || ws.readyState !== WebSocket.OPEN) return;
           restarting = true;
           session?.close();
           session = null;
-
-          // Notify browser — it will update its voice indicator
           send(ws, { type: "voice_changed", payload: { voice: newVoice } });
-
           try {
             await startSession(newVoice);
             restarting = false;
@@ -287,16 +322,11 @@ export async function handleLiveSession(
     }
   }
 
-  // ── Forward browser → Gemini Live ─────────────────────────────────────────
-  // NOTE: in the `ws` library all messages arrive as Buffer objects regardless
-  // of whether they are binary or text frames. Use the `isBinary` parameter
-  // (the second argument) to distinguish audio PCM bytes from JSON control msgs.
   ws.on("message", (data, isBinary) => {
     if (!session || restarting) return;
 
     try {
       if (isBinary) {
-        // Raw PCM-16 audio from the browser microphone
         const buf = Buffer.isBuffer(data) ? data : Buffer.from(data as ArrayBuffer);
         session.sendRealtimeInput({
           audio: { data: buf.toString("base64"), mimeType: "audio/pcm;rate=16000" },
@@ -310,7 +340,6 @@ export async function handleLiveSession(
           });
         }
 
-        // Manual voice change from UI dropdown
         if (msg.type === "set_voice" && typeof msg.payload === "string") {
           const newVoice = resolveVoice(msg.payload);
           if (newVoice !== currentVoice) {
@@ -344,7 +373,6 @@ export async function handleLiveSession(
     session = null;
   });
 
-  // Initial session
   try {
     await startSession(initialVoice);
   } catch (err) {

@@ -9,8 +9,6 @@
  */
 import { GoogleGenAI } from "@google/genai";
 
-const genai = new GoogleGenAI({ apiKey: process.env.GOOGLE_AI_API_KEY ?? "" });
-
 const SEP = "::";
 
 export interface FileRecord {
@@ -33,6 +31,11 @@ function parseDisplayName(displayName: string): { vesselId: string; filename: st
   return { vesselId: displayName.slice(0, idx), filename: displayName.slice(idx + SEP.length) };
 }
 
+function getGenAI(apiKey?: string): GoogleGenAI {
+  const key = apiKey ?? process.env.GOOGLE_AI_API_KEY ?? "";
+  return new GoogleGenAI({ apiKey: key });
+}
+
 // ── public API ────────────────────────────────────────────────────────────────
 
 /**
@@ -43,8 +46,10 @@ export async function uploadFile(
   buffer: Buffer,
   filename: string,
   vesselId: string,
-  mimeType: string = "application/pdf"
+  mimeType: string = "application/pdf",
+  apiKey?: string
 ): Promise<FileRecord> {
+  const genai = getGenAI(apiKey);
   const displayName = makeDisplayName(vesselId, filename);
   const blob = new Blob([buffer], { type: mimeType });
 
@@ -76,7 +81,8 @@ export async function uploadFile(
  * returns a Pager object with { page: File[], nextPage() }.  We cast to any
  * to bridge that gap without suppressing the whole file.
  */
-export async function listFiles(vesselId?: string): Promise<FileRecord[]> {
+export async function listFiles(vesselId?: string, apiKey?: string): Promise<FileRecord[]> {
+  const genai = getGenAI(apiKey);
   const records: FileRecord[] = [];
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let pager: any = await genai.files.list();
@@ -108,7 +114,8 @@ export async function listFiles(vesselId?: string): Promise<FileRecord[]> {
 }
 
 /** Delete a file from the Gemini Files API. */
-export async function deleteFile(name: string): Promise<void> {
+export async function deleteFile(name: string, apiKey?: string): Promise<void> {
+  const genai = getGenAI(apiKey);
   await genai.files.delete({ name });
 }
 

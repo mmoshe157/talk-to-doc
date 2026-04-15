@@ -1,14 +1,12 @@
 /**
  * RAG retrieval using Gemini Files API + generateContent.
  *
- * For each active file that belongs to the vessel, we ask Gemini to extract
- * the passages most relevant to the query directly from the PDF.  No chunking,
- * no embeddings, no vector DB — Gemini reads the whole document.
+ * For each active file that belongs to the session, we ask Gemini to extract
+ * the passages most relevant to the query directly from the document.
+ * No chunking, no embeddings, no vector DB — Gemini reads the whole document.
  */
 import { GoogleGenAI } from "@google/genai";
 import { listFiles } from "./file-store.js";
-
-const genai = new GoogleGenAI({ apiKey: process.env.GOOGLE_AI_API_KEY ?? "" });
 
 export interface ManualChunk {
   text: string;
@@ -18,12 +16,16 @@ export interface ManualChunk {
 
 export async function searchManual(
   query: string,
-  vesselId: string
+  vesselId: string,
+  apiKey?: string
 ): Promise<ManualChunk[]> {
-  const files = await listFiles(vesselId);
+  const key = apiKey ?? process.env.GOOGLE_AI_API_KEY ?? "";
+  const genai = new GoogleGenAI({ apiKey: key });
+
+  const files = await listFiles(vesselId, apiKey);
 
   if (files.length === 0) {
-    console.warn("[RAG] No active manuals for vessel:", vesselId);
+    console.warn("[RAG] No active manuals for session:", vesselId);
     return [];
   }
 
