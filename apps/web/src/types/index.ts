@@ -11,6 +11,7 @@ export type LiveSessionStatus =
   | "ready"
   | "listening"
   | "speaking"
+  | "processing"   // silent mode: Gemini is generating but audio is suppressed
   | "error";
 
 export interface DocRecord {

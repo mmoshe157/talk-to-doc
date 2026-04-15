@@ -89,7 +89,8 @@ wss.on("connection", (ws, req) => {
   const apiKey = params.get("apiKey") ?? undefined;
   const rawMode = params.get("mode") ?? "docs";
   const mode: "docs" | "gcp" = rawMode === "gcp" ? "gcp" : "docs";
-  handleLiveSession(ws, sessionId, voice, apiKey, mode);
+  const silent = params.get("silent") === "true";
+  handleLiveSession(ws, sessionId, voice, apiKey, mode, silent);
 });
 
 server.listen(PORT, () => {

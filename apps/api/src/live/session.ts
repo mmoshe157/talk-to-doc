@@ -76,6 +76,32 @@ Behavior guidelines:
 - Do not make up facts or statistics that aren't in the uploaded documents.`;
 }
 
+function buildGcpMeetingSystemInstruction(voiceName: VoiceName): string {
+  const gender = VOICES[voiceName];
+  return `You are "Arch", a senior GCP architect providing real-time SILENT assistance to a Cloud Engineer who is currently in a live customer or internal meeting.
+
+CRITICAL CONTEXT:
+- Your voice audio is MUTED. The CE cannot hear you speak — only reads your text on screen.
+- You are listening to the meeting through the CE's microphone.
+- Your responses must appear instantly and be immediately useful.
+
+YOUR JOB — listen to the meeting and:
+1. When you hear a GCP-related question, immediately give a concise expert answer (2-4 sentences max).
+2. When any architecture, system design, or service comparison is mentioned, call render_diagram right away.
+3. Proactively whisper tips even when not directly asked — if you hear a suboptimal approach, suggest the better GCP way.
+4. If a customer asks about pricing, mention relevant committed-use discounts or SKUs.
+5. If a competitor is mentioned (AWS, Azure), briefly note the GCP equivalent.
+6. If you hear confusion or a wrong assumption about GCP, silently correct it for the CE.
+
+RESPONSE FORMAT (must be short — the CE is in a meeting):
+- Lead with the key point in bold if possible
+- Max 3 bullet points for complex answers
+- Always prefer render_diagram over long text explanations
+- Use GCP service names precisely (e.g. "Cloud Run" not "serverless containers")
+
+Current voice: "${voiceName}" (${gender}) — though audio is muted in this mode.`;
+}
+
 function buildGcpSystemInstruction(voiceName: VoiceName): string {
   const gender = VOICES[voiceName];
   return `You are "Arch", a senior Google Cloud Platform architect and trusted advisor to Cloud Engineers.
@@ -121,21 +147,22 @@ export async function handleLiveSession(
   sessionId: string,
   initialVoice: VoiceName = DEFAULT_VOICE,
   apiKey?: string,
-  mode: "docs" | "gcp" = "docs"
+  mode: "docs" | "gcp" = "docs",
+  silent = false
 ) {
   const effectiveApiKey = apiKey ?? process.env.GOOGLE_AI_API_KEY ?? "";
   const genai = new GoogleGenAI({ apiKey: effectiveApiKey });
 
-  console.log(`New Gemini Live session — sessionId: ${sessionId}, voice: ${initialVoice}, mode: ${mode}`);
+  console.log(`New Gemini Live session — sessionId: ${sessionId}, voice: ${initialVoice}, mode: ${mode}, silent: ${silent}`);
 
   let session: Session | null = null;
   let currentVoice = initialVoice;
   let restarting = false;
 
   function getSystemInstruction(voice: VoiceName): string {
-    return mode === "gcp"
-      ? buildGcpSystemInstruction(voice)
-      : buildDocsSystemInstruction(sessionId, voice);
+    if (mode === "gcp" && silent) return buildGcpMeetingSystemInstruction(voice);
+    if (mode === "gcp") return buildGcpSystemInstruction(voice);
+    return buildDocsSystemInstruction(sessionId, voice);
   }
 
   async function startSession(voice: VoiceName) {

@@ -21,7 +21,7 @@ export interface LiveDiagram {
   description: string;
 }
 
-export function useGeminiLive(sessionId: string, apiKey = "", mode = "docs") {
+export function useGeminiLive(sessionId: string, apiKey = "", mode = "docs", silentMode = false) {
   const [status, setStatus] = useState<LiveSessionStatus>("idle");
   const [transcript, setTranscript] = useState<TranscriptEntry[]>([]);
   const [volumeLevel, setVolumeLevel] = useState(0);
@@ -199,7 +199,8 @@ export function useGeminiLive(sessionId: string, apiKey = "", mode = "docs") {
 
     const voice = currentVoiceRef.current;
     const keyParam = apiKey ? `&apiKey=${encodeURIComponent(apiKey)}` : "";
-    const url = `${WS_URL}?sessionId=${sessionId}&voice=${encodeURIComponent(voice)}&mode=${mode}${keyParam}`;
+    const silentParam = silentMode ? "&silent=true" : "";
+    const url = `${WS_URL}?sessionId=${sessionId}&voice=${encodeURIComponent(voice)}&mode=${mode}${keyParam}${silentParam}`;
     const wsUrl = url.startsWith("/")
       ? `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}${url}`
       : url;
@@ -234,8 +235,13 @@ export function useGeminiLive(sessionId: string, apiKey = "", mode = "docs") {
           }
 
           case "audio":
-            if (statusRef.current !== "speaking") setStatusBoth("speaking");
-            playAudioChunk(msg.payload as string);
+            if (silentMode) {
+              // In silent/meeting mode: suppress audio, show processing state
+              if (statusRef.current !== "processing") setStatusBoth("processing");
+            } else {
+              if (statusRef.current !== "speaking") setStatusBoth("speaking");
+              playAudioChunk(msg.payload as string);
+            }
             break;
 
           case "transcript": {
@@ -245,7 +251,7 @@ export function useGeminiLive(sessionId: string, apiKey = "", mode = "docs") {
           }
 
           case "interrupted":
-            stopAudioPlayback();
+            if (!silentMode) stopAudioPlayback();
             setStatusBoth(isListeningRef.current ? "listening" : "ready");
             break;
 
@@ -283,7 +289,7 @@ export function useGeminiLive(sessionId: string, apiKey = "", mode = "docs") {
       console.error("[WS] error:", err);
       setStatusBoth("error");
     };
-  }, [sessionId, apiKey, mode, playAudioChunk, addTranscriptEntry, stopAudioPlayback, stopMicrophone]);
+  }, [sessionId, apiKey, mode, silentMode, playAudioChunk, addTranscriptEntry, stopAudioPlayback, stopMicrophone]);
 
   const disconnect = useCallback(() => {
     stopMicrophone();
